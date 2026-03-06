@@ -655,15 +655,26 @@ The LINEAR_API_KEY is already in your environment.
 def yaml_list(items):
     return "\n".join(f"    - {s}" for s in items)
 
-after_create = repo.get("after_create", 'git clone --depth 1 "$SOURCE_REPO_URL" .')
-before_run   = repo.get("before_run", "")
-after_run    = repo.get("after_run", "")
+after_create   = repo.get("after_create", 'git clone --depth 1 "$SOURCE_REPO_URL" .')
+before_run     = repo.get("before_run", "")
+after_run      = repo.get("after_run", "")
+before_remove  = repo.get("before_remove", "")
+local_repo     = repo.get("local_repo", "")
+
+# Inject LOCAL_REPO env var into hooks if configured
+if local_repo:
+    local_repo_export = f"export LOCAL_REPO={local_repo!r}\n    "
+    after_create = local_repo_export + after_create
+    if before_remove:
+        before_remove = local_repo_export + before_remove
 
 hooks_section = f"  after_create: |\n    {after_create}\n"
 if before_run:
     hooks_section += f"  before_run: |\n    {before_run}\n"
 if after_run:
     hooks_section += f"  after_run: |\n    {after_run}\n"
+if before_remove:
+    hooks_section += f"  before_remove: |\n    {before_remove}\n"
 
 workflow = f"""---
 tracker:
