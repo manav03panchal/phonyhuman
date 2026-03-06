@@ -894,6 +894,112 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
     exec "${cmd[@]}"
 }
 
+# phonyhuman completions <shell>
+cmd_completions() {
+    local shell="${1:-}"
+
+    # Auto-detect shell if not specified
+    if [[ -z "$shell" ]]; then
+        case "$(basename "${SHELL:-}")" in
+            zsh)  shell="zsh" ;;
+            bash) shell="bash" ;;
+            fish) shell="fish" ;;
+            *)    shell="bash" ;;
+        esac
+    fi
+
+    case "$shell" in
+        bash)
+            cat <<'BASH_COMP'
+_phonyhuman() {
+    local cur prev commands
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    commands="init run doctor version update completions help"
+
+    case "$prev" in
+        phonyhuman)
+            COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+            return 0
+            ;;
+        run)
+            COMPREPLY=($(compgen -f -X '!*.toml' -- "$cur"))
+            return 0
+            ;;
+        completions)
+            COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
+            return 0
+            ;;
+    esac
+}
+complete -F _phonyhuman phonyhuman
+BASH_COMP
+            ;;
+        zsh)
+            cat <<'ZSH_COMP'
+#compdef phonyhuman
+
+_phonyhuman() {
+    local -a commands
+    commands=(
+        'init:Generate a config file from template'
+        'run:Run the orchestrator'
+        'doctor:Check all prerequisites'
+        'version:Show version'
+        'update:Self-update from GitHub releases'
+        'completions:Output shell completions'
+        'help:Show usage info'
+    )
+
+    _arguments -C \
+        '1:command:->command' \
+        '*::arg:->args'
+
+    case "$state" in
+        command)
+            _describe 'command' commands
+            ;;
+        args)
+            case "${words[1]}" in
+                run)
+                    _files -g '*.toml'
+                    ;;
+                completions)
+                    _values 'shell' bash zsh fish
+                    ;;
+                init)
+                    _message 'project name'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_phonyhuman "$@"
+ZSH_COMP
+            ;;
+        fish)
+            cat <<'FISH_COMP'
+complete -c phonyhuman -f
+complete -c phonyhuman -n '__fish_use_subcommand' -a 'init' -d 'Generate a config file from template'
+complete -c phonyhuman -n '__fish_use_subcommand' -a 'run' -d 'Run the orchestrator'
+complete -c phonyhuman -n '__fish_use_subcommand' -a 'doctor' -d 'Check all prerequisites'
+complete -c phonyhuman -n '__fish_use_subcommand' -a 'version' -d 'Show version'
+complete -c phonyhuman -n '__fish_use_subcommand' -a 'update' -d 'Self-update from GitHub releases'
+complete -c phonyhuman -n '__fish_use_subcommand' -a 'completions' -d 'Output shell completions'
+complete -c phonyhuman -n '__fish_use_subcommand' -a 'help' -d 'Show usage info'
+complete -c phonyhuman -n '__fish_seen_subcommand_from run' -F -r -a '*.toml'
+complete -c phonyhuman -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'
+FISH_COMP
+            ;;
+        *)
+            echo "Unknown shell: $shell (supported: bash, zsh, fish)" >&2
+            exit 1
+            ;;
+    esac
+}
+
 # ── Main dispatch ────────────────────────────────────────────────────
 
 main() {
@@ -915,6 +1021,9 @@ main() {
             ;;
         update|upgrade)
             cmd_update
+            ;;
+        completions)
+            cmd_completions "$@"
             ;;
         help|--help|-h)
             cmd_help

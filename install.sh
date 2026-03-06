@@ -255,6 +255,44 @@ if [ "$ALREADY_IN_PATH" = false ]; then
     export PATH="$BIN_DIR:$PATH"
 fi
 
+# ── Shell completions ─────────────────────────────────────────────────
+echo "  Setting up completions..."
+
+SHELL_NAME="$(basename "${SHELL:-/bin/sh}")"
+
+case "$SHELL_NAME" in
+    zsh)
+        COMP_DIR="$HOME/.zsh/completions"
+        mkdir -p "$COMP_DIR"
+        "$BIN_DIR/phonyhuman" completions zsh > "$COMP_DIR/_phonyhuman"
+        # Ensure completion dir is in fpath
+        if [ -f "$HOME/.zshrc" ]; then
+            if ! grep -qF "$COMP_DIR" "$HOME/.zshrc" 2>/dev/null; then
+                echo "" >> "$HOME/.zshrc"
+                echo "# phonyhuman completions" >> "$HOME/.zshrc"
+                echo "fpath=($COMP_DIR \$fpath)" >> "$HOME/.zshrc"
+                echo "autoload -Uz compinit && compinit" >> "$HOME/.zshrc"
+            fi
+        fi
+        dim "  Installed zsh completions"; echo ""
+        ;;
+    bash)
+        COMP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"
+        mkdir -p "$COMP_DIR"
+        "$BIN_DIR/phonyhuman" completions bash > "$COMP_DIR/phonyhuman"
+        dim "  Installed bash completions"; echo ""
+        ;;
+    fish)
+        COMP_DIR="$HOME/.config/fish/completions"
+        mkdir -p "$COMP_DIR"
+        "$BIN_DIR/phonyhuman" completions fish > "$COMP_DIR/phonyhuman.fish"
+        dim "  Installed fish completions"; echo ""
+        ;;
+    *)
+        dim "  Skipped (unsupported shell: $SHELL_NAME)"; echo ""
+        ;;
+esac
+
 # ── Run doctor ───────────────────────────────────────────────────────
 echo ""
 "$BIN_DIR/phonyhuman" doctor
