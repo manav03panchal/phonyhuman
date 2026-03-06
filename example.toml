@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────
+# Symphony + Claude Code — Project Configuration
+# ─────────────────────────────────────────────────────────────────────
+# Copy this file, fill in your values, and run:
+#   ./run-symphony.sh my-project.toml
+
+[linear]
+api_key = ""                  # Linear personal API token (lin_api_...)
+                              # Can also use LINEAR_API_KEY env var
+project_slug = ""             # From the project URL: linear.app/team/project/<SLUG>
+
+# Optional: customize which Linear states Symphony watches
+# active_states = ["Todo", "In Progress"]
+# terminal_states = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+
+[repo]
+url = ""                      # Git clone URL — SSH or HTTPS
+                              # Can also use SOURCE_REPO_URL env var
+
+# Optional: custom workspace hooks (shell commands)
+# after_create = "git clone --depth 1 \"$SOURCE_REPO_URL\" . && npm install"
+# before_run = "git pull origin main"
+# after_run = "npm run lint"
+
+[agent]
+max_concurrent = 5            # How many issues to work on in parallel
+max_turns = 20                # Max Claude turns per issue before pausing
+poll_interval_ms = 10000      # How often to check Linear for new issues (ms)
+
+[workspace]
+root = "~/symphony-workspaces" # Where issue workspaces are created
+
+# Optional: enable the live web dashboard
+# [server]
+# port = 4000
+
+# Optional: customize the prompt template sent to Claude
+# Uses Liquid syntax: {{ issue.identifier }}, {{ issue.title }}, etc.
+# [prompt]
+# template = """
+# Your custom prompt here...
+# """

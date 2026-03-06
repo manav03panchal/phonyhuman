@@ -1,0 +1,16 @@
+# Demo: Go TUI Todo App
+
+[linear]
+api_key = ""  # set LINEAR_API_KEY env var
+project_slug = "symphony-demo-go-tui-todo-app-3ce5a0894662"
+
+[repo]
+url = "https://github.com/manav03panchal/symphony-demo-app.git"
+
+[agent]
+max_concurrent = 3
+max_turns = 20
+poll_interval_ms = 10000
+
+[workspace]
+root = "~/symphony-workspaces"
