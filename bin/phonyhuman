@@ -378,12 +378,17 @@ api_key = ""                  # Linear personal API token (lin_api_...)
 project_slug = ""             # From the project URL: linear.app/team/project/<SLUG>
 
 # Optional: customize which Linear states phonyhuman watches
-# active_states = ["Todo", "In Progress"]
+# active_states = ["Todo", "In Progress", "Merging", "Rework"]
 # terminal_states = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
 
 [repo]
 url = ""                      # Git clone URL — SSH or HTTPS
                               # Can also use SOURCE_REPO_URL env var
+
+# Workspace mode: set local_repo to use fast git worktrees (default).
+# Each issue gets its own branch (symphony/<issue-id>) sharing git objects.
+# Omit local_repo to fall back to full git clone per issue.
+local_repo = ""                   # Path to your existing repo checkout
 
 # Optional: custom workspace hooks (shell commands)
 # after_create = "git clone --depth 1 \"$SOURCE_REPO_URL\" . && npm install"
@@ -655,18 +660,27 @@ The LINEAR_API_KEY is already in your environment.
 def yaml_list(items):
     return "\n".join(f"    - {s}" for s in items)
 
-after_create   = repo.get("after_create", 'git clone --depth 1 "$SOURCE_REPO_URL" .')
 before_run     = repo.get("before_run", "")
 after_run      = repo.get("after_run", "")
-before_remove  = repo.get("before_remove", "")
 local_repo     = repo.get("local_repo", "")
 
-# Inject LOCAL_REPO env var into hooks if configured
+# Default to worktree mode if local_repo is set, clone mode otherwise
 if local_repo:
-    local_repo_export = f"export LOCAL_REPO={local_repo!r}\n    "
-    after_create = local_repo_export + after_create
-    if before_remove:
-        before_remove = local_repo_export + before_remove
+    worktree_after_create = (
+        f'export LOCAL_REPO={local_repo!r}\n'
+        '    BRANCH="symphony/$(basename "$PWD")"\n'
+        '    git -C "$LOCAL_REPO" fetch origin main\n'
+        '    git -C "$LOCAL_REPO" worktree add "$PWD" -b "$BRANCH" origin/main'
+    )
+    worktree_before_remove = (
+        f'export LOCAL_REPO={local_repo!r}\n'
+        '    git -C "$LOCAL_REPO" worktree remove "$PWD" --force 2>/dev/null || true'
+    )
+    after_create  = repo.get("after_create", worktree_after_create)
+    before_remove = repo.get("before_remove", worktree_before_remove)
+else:
+    after_create  = repo.get("after_create", 'git clone --depth 1 "$SOURCE_REPO_URL" .')
+    before_remove = repo.get("before_remove", "")
 
 hooks_section = f"  after_create: |\n    {after_create}\n"
 if before_run:

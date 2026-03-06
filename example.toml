@@ -17,25 +17,17 @@ project_slug = ""             # From the project URL: linear.app/team/project/<S
 url = ""                      # Git clone URL — SSH or HTTPS
                               # Can also use SOURCE_REPO_URL env var
 
+# Workspace mode: set local_repo to use fast git worktrees (default).
+# Each issue gets its own branch (symphony/<issue-id>) sharing git objects.
+# Omit local_repo to fall back to full git clone per issue.
+local_repo = ""                   # Path to your existing repo checkout
+
 # Optional: custom workspace hooks (shell commands)
+# Worktree hooks are auto-generated when local_repo is set.
+# Override them here if you need custom setup:
 # after_create = "git clone --depth 1 \"$SOURCE_REPO_URL\" . && npm install"
 # before_run = "git pull origin main"
 # after_run = "npm run lint"
-
-# ── Worktree mode (faster, less disk) ──
-# Clone the repo once, then use worktrees per issue instead of full clones.
-# Set 'local_repo' to your existing checkout, then use these hooks:
-#
-# local_repo = "/path/to/your/repo"
-# after_create = """
-#   BRANCH="symphony/$(basename "$PWD")"
-#   git -C "$LOCAL_REPO" fetch origin main
-#   git -C "$LOCAL_REPO" worktree add "$PWD" -b "$BRANCH" origin/main
-# """
-# before_remove = """
-#   LOCAL_REPO="$(git rev-parse --git-common-dir 2>/dev/null | xargs dirname)"
-#   git -C "$LOCAL_REPO" worktree remove "$PWD" --force 2>/dev/null || true
-# """
 
 [agent]
 max_concurrent = 5            # How many issues to work on in parallel
