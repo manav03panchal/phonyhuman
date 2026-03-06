@@ -424,6 +424,9 @@ TOML
     dim "  Edit it with your Linear + repo details, then run:"; echo ""
     echo "    phonyhuman run $target"
     echo ""
+    yellow "  Tip: This file will contain your API key. Don't commit it."; echo ""
+    dim "  Use LINEAR_API_KEY env var instead, or keep this file outside your repo."; echo ""
+    echo ""
 }
 
 # phonyhuman update
