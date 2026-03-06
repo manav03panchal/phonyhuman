@@ -1,41 +1,60 @@
-# Symphony + Claude Code
+# phonyhuman
 
 A fork of [OpenAI's Symphony](https://github.com/openai/symphony) that uses **Claude Code** instead of Codex. Works with your Claude Max subscription — no Anthropic API key needed.
 
-Symphony polls your Linear board for issues, spins up isolated workspaces, and dispatches Claude Code agents to implement them autonomously.
+phonyhuman polls your Linear board for issues, spins up isolated workspaces, and dispatches Claude Code agents to implement them autonomously.
 
-## How it works
+## Install
 
+```bash
+curl -sSL https://raw.githubusercontent.com/manav03panchal/symphony-claude/main/install.sh | sh
 ```
-Linear (issues) → Symphony (orchestrator) → Claude Code (agents)
-                                          ↘ linear-cli (feedback)
-```
-
-1. You create issues in Linear with requirements
-2. Symphony polls for new issues every few seconds
-3. For each issue, it clones your repo into an isolated workspace
-4. Claude Code picks up the issue, reads the requirements, writes code, commits, and updates Linear
-5. Repeat — multiple agents run in parallel
-
-## Prerequisites
-
-- **Claude Code** with a Max subscription (`claude` CLI in PATH)
-- **Elixir 1.19+** / OTP 28 (install via [mise](https://mise.jdx.dev/), asdf, or [elixir-lang.org](https://elixir-lang.org/install.html))
-- **Python 3.11+** (for the protocol shim)
-- **Linear account** with a personal API key
 
 ## Quick start
 
 ```bash
-# Clone
-git clone https://github.com/manav03panchal/symphony-claude.git
-cd symphony-claude
-
 # Generate a config
-./run-symphony.sh --init my-project.toml
+phonyhuman init my-project
+
+# Edit my-project.toml with your Linear + repo details, then:
+phonyhuman run my-project.toml
 ```
 
-Edit `my-project.toml`:
+## How it works
+
+```
+Linear (issues) → phonyhuman (orchestrator) → Claude Code (agents)
+                                             ↘ linear-cli (feedback)
+```
+
+1. You create issues in Linear with requirements
+2. phonyhuman polls for new issues every few seconds
+3. For each issue, it clones your repo into an isolated workspace
+4. Claude Code picks up the issue, reads the requirements, writes code, commits, and updates Linear
+5. Repeat — multiple agents run in parallel
+
+## Commands
+
+```
+phonyhuman init [name]     Generate a config file from template
+phonyhuman run <config>    Run the orchestrator
+phonyhuman doctor          Check all prerequisites
+phonyhuman version         Show version
+phonyhuman update          Self-update from GitHub releases
+phonyhuman help            Usage info
+```
+
+## Prerequisites
+
+- **Claude Code** with a Max subscription (`claude` CLI in PATH)
+- **Erlang/OTP 28** (auto-installed via [mise](https://mise.jdx.dev/) if missing)
+- **Python 3.11+** (for the protocol shim)
+- **Linear account** with a personal API key
+- **GitHub CLI** (`gh`) — recommended for the PR workflow ([install](https://cli.github.com))
+
+## Configuration
+
+Edit the generated `.toml` file:
 
 ```toml
 [linear]
@@ -54,20 +73,6 @@ poll_interval_ms = 10000
 root = "~/symphony-workspaces"
 ```
 
-Run it:
-
-```bash
-# With the key in the config
-./run-symphony.sh my-project.toml
-
-# Or with env var
-LINEAR_API_KEY="lin_api_..." ./run-symphony.sh my-project.toml
-```
-
-The launcher auto-detects Elixir, builds Symphony on first run, validates your Linear connection, and starts the dashboard.
-
-## Configuration
-
 ### Required fields
 
 | Field | Description |
@@ -80,7 +85,7 @@ The launcher auto-detects Elixir, builds Symphony on first run, validates your L
 
 ```toml
 [linear]
-# Customize which states Symphony watches
+# Customize which states phonyhuman watches
 active_states = ["Todo", "In Progress"]
 terminal_states = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
 
@@ -127,8 +132,31 @@ Each agent follows this workflow on every issue:
 2. **Moves** it to "In Progress"
 3. **Creates a Workpad** comment on the issue to track progress
 4. **Implements** the requirements — reads code, writes changes, commits
-5. **Updates the Workpad** with progress, test results, notes
-6. **Moves to "Done"** when all acceptance criteria are met
+5. **Pushes** a branch, opens a PR, and attaches it to the Linear issue
+6. **Updates the Workpad** with progress, test results, notes
+7. **Moves to "Human Review"** when all acceptance criteria and PR checks pass
+8. After human approval, **lands the PR** via squash-merge
+
+### PR workflow and Linear states
+
+Agents use a full branch-based PR workflow with these Linear states:
+
+```
+Todo → In Progress → Human Review → Merging → Done
+                          ↑              |
+                          └── Rework ←───┘
+```
+
+| State | What happens |
+|---|---|
+| **Todo** | Agent picks up issue, moves to In Progress |
+| **In Progress** | Agent implements, creates branch, opens PR, runs tests |
+| **Human Review** | PR is ready; agent waits for human approval |
+| **Rework** | Reviewer requested changes; agent resets and re-implements |
+| **Merging** | Human approved; agent monitors CI and squash-merges |
+| **Done** | PR merged, issue complete |
+
+Agents ship with skills for each phase: `commit`, `push`, `pull`, and `land`. These are installed at `~/.phonyhuman/skills/` and referenced in the generated workflow.
 
 Agents interact with Linear using `linear-cli.py`, which supports:
 
@@ -145,7 +173,7 @@ linear-cli.py graphql <query>          # raw GraphQL
 ## Architecture
 
 ```
-run-symphony.sh          TOML config → generates WORKFLOW.md → launches Symphony
+phonyhuman               TOML config → generates WORKFLOW.md → launches Symphony
   └─ Symphony (Elixir)   Polls Linear, manages workspaces, dispatches agents
        └─ claude-shim.py Speaks Codex JSON-RPC protocol, drives Claude Code CLI
             └─ claude     Your Claude Max subscription does the actual work
@@ -155,11 +183,12 @@ run-symphony.sh          TOML config → generates WORKFLOW.md → launches Symp
 
 | File | Purpose |
 |---|---|
-| `run-symphony.sh` | Launcher — reads TOML, validates, builds, runs |
+| `bin/phonyhuman` | CLI — reads TOML, validates, builds, runs |
 | `claude-shim.py` | Protocol adapter (Codex JSON-RPC → Claude Code CLI) |
 | `linear-cli.py` | CLI for agents to read/write Linear issues |
 | `example.toml` | Documented config template |
 | `elixir/` | Symphony orchestrator (Elixir/OTP) |
+| `install.sh` | Curl-installable installer |
 
 ### How the shim works
 
@@ -186,11 +215,19 @@ Then open `http://localhost:4000` to see running agents, token usage, and issue 
 
 ## Updating
 
-Pull upstream changes from OpenAI's Symphony:
-
 ```bash
-git pull upstream main
+phonyhuman update
 ```
+
+## Environment variables
+
+| Variable | Description |
+|---|---|
+| `PHONYHUMAN_HOME` | Install directory (default: `~/.phonyhuman`) |
+| `LINEAR_API_KEY` | Linear personal API token |
+| `SOURCE_REPO_URL` | Git clone URL (overrides config) |
+| `GITHUB_TOKEN` | Auth token for private repo / self-update |
+| `PHONYHUMAN_VERSION` | Pin installer to a specific version |
 
 ## License
 

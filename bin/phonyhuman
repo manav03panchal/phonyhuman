@@ -1,0 +1,905 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────
+# phonyhuman — CLI for Symphony + Claude Code
+#
+# Usage:
+#   phonyhuman init [name]     Generate a config from template
+#   phonyhuman run <config>    Run the orchestrator
+#   phonyhuman doctor          Check all prerequisites
+#   phonyhuman version         Show version
+#   phonyhuman update          Self-update from GitHub releases
+#   phonyhuman help            Usage info
+# ─────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+VERSION="dev"
+PHONYHUMAN_HOME="${PHONYHUMAN_HOME:-$HOME/.phonyhuman}"
+GITHUB_REPO="manav03panchal/symphony-claude"
+
+# ── Path resolution ──────────────────────────────────────────────────
+# When installed: PHONYHUMAN_HOME/bin/phonyhuman → PHONYHUMAN_HOME
+# When running from repo: detect via script location
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "$PHONYHUMAN_HOME/version" ]]; then
+    VERSION=$(cat "$PHONYHUMAN_HOME/version" 2>/dev/null || echo "dev")
+    BIN_DIR="$PHONYHUMAN_HOME/bin"
+    TEMPLATE_DIR="$PHONYHUMAN_HOME/templates"
+else
+    # Running from repo checkout
+    BIN_DIR="$SCRIPT_PATH"
+    REPO_ROOT="$(cd "$SCRIPT_PATH/.." && pwd)"
+    TEMPLATE_DIR="$REPO_ROOT/templates"
+    if [[ ! -d "$TEMPLATE_DIR" ]]; then
+        TEMPLATE_DIR="$REPO_ROOT"
+    fi
+fi
+
+SYMPHONY_ESCRIPT="$BIN_DIR/symphony-escript"
+SHIM_PATH="$BIN_DIR/claude-shim.py"
+LINEAR_CLI="$BIN_DIR/linear-cli.py"
+
+# Skills directory (shipped alongside bin/)
+if [[ -f "$PHONYHUMAN_HOME/version" ]]; then
+    SKILLS_DIR="$PHONYHUMAN_HOME/skills"
+else
+    SKILLS_DIR="$REPO_ROOT/skills"
+fi
+
+# Fallback: look for files at repo-root locations (repo checkout)
+if [[ ! -f "$SYMPHONY_ESCRIPT" && -f "$SCRIPT_PATH/../elixir/bin/symphony" ]]; then
+    SYMPHONY_ESCRIPT="$SCRIPT_PATH/../elixir/bin/symphony"
+fi
+if [[ ! -f "$SHIM_PATH" && -f "$SCRIPT_PATH/../claude-shim.py" ]]; then
+    SHIM_PATH="$SCRIPT_PATH/../claude-shim.py"
+fi
+if [[ ! -f "$LINEAR_CLI" && -f "$SCRIPT_PATH/../linear-cli.py" ]]; then
+    LINEAR_CLI="$SCRIPT_PATH/../linear-cli.py"
+fi
+
+# ── Color helpers ────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+    bold()  { printf "\033[1m%s\033[0m" "$*"; }
+    green() { printf "\033[32m%s\033[0m" "$*"; }
+    red()   { printf "\033[31m%s\033[0m" "$*"; }
+    cyan()  { printf "\033[36m%s\033[0m" "$*"; }
+    dim()   { printf "\033[90m%s\033[0m" "$*"; }
+    yellow(){ printf "\033[33m%s\033[0m" "$*"; }
+else
+    bold()  { printf "%s" "$*"; }
+    green() { printf "%s" "$*"; }
+    red()   { printf "%s" "$*"; }
+    cyan()  { printf "%s" "$*"; }
+    dim()   { printf "%s" "$*"; }
+    yellow(){ printf "%s" "$*"; }
+fi
+
+die() { echo ""; red "  ERROR: $1"; echo ""; exit 1; }
+
+banner() {
+    echo ""
+    echo "  🤪 $(bold "phonyhuman") $(dim "v$VERSION")"
+    dim "  Autonomous issue orchestration powered by Claude Code"; echo ""
+    echo ""
+}
+
+# ── Runtime detection ────────────────────────────────────────────────
+
+# Find erl binary across common install locations
+find_erlang() {
+    # 1. Already on PATH
+    if command -v erl &>/dev/null; then return 0; fi
+
+    # 2. mise (preferred)
+    if command -v mise &>/dev/null; then
+        local mise_erl
+        mise_erl="$(mise where erlang 2>/dev/null || true)"
+        if [[ -n "$mise_erl" && -x "$mise_erl/bin/erl" ]]; then
+            export PATH="$mise_erl/bin:$PATH"
+            return 0
+        fi
+    fi
+
+    # 3. asdf
+    if [[ -d "$HOME/.asdf/installs/erlang" ]]; then
+        local erl_bin
+        erl_bin=$(find "$HOME/.asdf/installs/erlang" -name "erl" -type f -path "*/bin/erl" 2>/dev/null | head -1)
+        if [[ -n "$erl_bin" ]]; then
+            export PATH="$(dirname "$erl_bin"):$PATH"
+            return 0
+        fi
+    fi
+
+    # 4. Homebrew / system locations
+    local search_dirs=(
+        "/usr/local/lib/erlang/bin"
+        "/opt/homebrew/lib/erlang/bin"
+        "$HOME/.mise/installs/erlang"
+    )
+    for base in "${search_dirs[@]}"; do
+        if [[ -d "$base" ]]; then
+            local erl_bin
+            erl_bin=$(find "$base" -name "erl" -type f -path "*/bin/erl" 2>/dev/null | head -1)
+            if [[ -n "$erl_bin" ]]; then
+                export PATH="$(dirname "$erl_bin"):$PATH"
+                return 0
+            fi
+        fi
+    done
+
+    return 1
+}
+
+# Find elixir binary (needed for building from source)
+find_elixir() {
+    if command -v elixir &>/dev/null; then return 0; fi
+    local search_dirs=(
+        "$HOME/.elixir-install/installs"
+        "$HOME/.asdf/installs/elixir"
+        "$HOME/.mise/installs/elixir"
+    )
+    for base in "${search_dirs[@]}"; do
+        if [[ -d "$base" ]]; then
+            local elixir_bin
+            elixir_bin=$(find "$base" -name "elixir" -type f -path "*/bin/elixir" 2>/dev/null | head -1)
+            if [[ -n "$elixir_bin" ]]; then
+                export PATH="$(dirname "$elixir_bin"):$PATH"
+                # Also find corresponding erl
+                local erl_bin
+                erl_bin=$(find "$(dirname "$base")" -name "erl" -type f -path "*/bin/erl" 2>/dev/null | head -1)
+                if [[ -n "$erl_bin" ]]; then
+                    export PATH="$(dirname "$erl_bin"):$PATH"
+                fi
+                return 0
+            fi
+        fi
+    done
+    return 1
+}
+
+# Ensure Erlang runtime is available; auto-install via mise if possible
+ensure_runtime() {
+    if find_erlang; then return 0; fi
+
+    echo ""
+    yellow "  Erlang/OTP not found. Attempting auto-install via mise..."; echo ""
+
+    # Install mise if needed
+    if ! command -v mise &>/dev/null; then
+        echo "  Installing mise..."
+        if curl -sSL https://mise.jdx.dev/install.sh | sh 2>/dev/null; then
+            export PATH="$HOME/.local/bin:$PATH"
+        else
+            die "Could not install mise. Install Erlang manually: https://mise.jdx.dev"
+        fi
+    fi
+
+    # Use .mise.toml from PHONYHUMAN_HOME if available
+    local mise_toml="$PHONYHUMAN_HOME/.mise.toml"
+    if [[ -f "$mise_toml" ]]; then
+        echo ""
+        yellow "  Installing Erlang/OTP 28 via mise (this builds from source, ~10-15 min)..."; echo ""
+        if (cd "$PHONYHUMAN_HOME" && mise trust 2>/dev/null && mise install 2>&1); then
+            if find_erlang; then
+                green "  Erlang installed successfully."; echo ""
+                return 0
+            fi
+        fi
+    fi
+
+    # Direct install
+    echo ""
+    yellow "  Installing erlang@28 via mise (this builds from source, ~10-15 min)..."; echo ""
+    if mise install erlang@28 2>&1; then
+        mise use --global erlang@28 2>/dev/null || true
+        if find_erlang; then
+            green "  Erlang installed successfully."; echo ""
+            return 0
+        fi
+    fi
+
+    die "Could not install Erlang. Install manually:
+  mise install erlang@28
+  # or: https://www.erlang.org/downloads"
+}
+
+# ── Subcommands ──────────────────────────────────────────────────────
+
+# phonyhuman help
+cmd_help() {
+    banner
+    echo "  $(bold "USAGE")"
+    echo "    phonyhuman <command> [arguments]"
+    echo ""
+    echo "  $(bold "COMMANDS")"
+    echo "    init [name]        Generate a config file from template"
+    echo "    run <config>       Run the orchestrator"
+    echo "    doctor             Check all prerequisites"
+    echo "    version            Show version"
+    echo "    update             Self-update from GitHub releases"
+    echo "    help               Show this help"
+    echo ""
+    echo "  $(bold "EXAMPLES")"
+    echo "    phonyhuman init my-project"
+    echo "    phonyhuman run my-project.toml"
+    echo "    LINEAR_API_KEY=lin_api_... phonyhuman run my-project.toml"
+    echo ""
+    echo "  $(bold "ENVIRONMENT")"
+    echo "    PHONYHUMAN_HOME    Install directory (default: ~/.phonyhuman)"
+    echo "    LINEAR_API_KEY     Linear personal API token"
+    echo "    SOURCE_REPO_URL    Git clone URL (overrides config)"
+    echo ""
+}
+
+# phonyhuman version
+cmd_version() {
+    echo "phonyhuman $VERSION"
+}
+
+# phonyhuman doctor
+cmd_doctor() {
+    banner
+    local ok=true
+
+    check() {
+        local label="$1" cmd="$2" hint="$3"
+        printf "  %-20s" "$label"
+        if eval "$cmd" &>/dev/null; then
+            green "OK"; echo ""
+        else
+            red "MISSING"; echo ""
+            dim "    → $hint"; echo ""
+            ok=false
+        fi
+    }
+
+    check_version() {
+        local label="$1" cmd="$2" hint="$3"
+        printf "  %-20s" "$label"
+        local ver
+        ver=$(eval "$cmd" 2>/dev/null || echo "")
+        if [[ -n "$ver" ]]; then
+            green "$ver"; echo ""
+        else
+            red "MISSING"; echo ""
+            dim "    → $hint"; echo ""
+            ok=false
+        fi
+    }
+
+    echo "  $(bold "Checking prerequisites...")"
+    echo ""
+
+    check_version "Erlang/OTP" \
+        "erl -eval 'io:format(\"OTP ~s\", [erlang:system_info(otp_release)]), halt().' -noshell 2>/dev/null || find_erlang && erl -eval 'io:format(\"OTP ~s\", [erlang:system_info(otp_release)]), halt().' -noshell" \
+        "Install: mise install erlang@28"
+
+    check_version "Python" \
+        "python3 --version | head -1" \
+        "Install Python 3.11+: https://python.org"
+
+    check_version "Claude CLI" \
+        "claude --version 2>/dev/null | head -1" \
+        "Install: https://docs.anthropic.com/en/docs/claude-code"
+
+    check "Git" \
+        "command -v git" \
+        "Install git: https://git-scm.com"
+
+    check "curl" \
+        "command -v curl" \
+        "Install curl"
+
+    # gh is recommended (not required) for the PR workflow
+    printf "  %-20s" "GitHub CLI (gh)"
+    local gh_ver
+    gh_ver=$(gh --version 2>/dev/null | head -1 || echo "")
+    if [[ -n "$gh_ver" ]]; then
+        green "$gh_ver"; echo ""
+    else
+        yellow "not found (optional)"; echo ""
+        dim "    → Recommended for PR workflow: https://cli.github.com"; echo ""
+    fi
+
+    # Check escript
+    printf "  %-20s" "Symphony escript"
+    if [[ -f "$SYMPHONY_ESCRIPT" && -x "$SYMPHONY_ESCRIPT" ]]; then
+        green "OK"; echo ""
+    elif [[ -f "$SYMPHONY_ESCRIPT" ]]; then
+        yellow "exists (not executable)"; echo ""
+    else
+        dim "not built"; echo ""
+        dim "    → Will be built on first 'phonyhuman run'"; echo ""
+    fi
+
+    # Check shim
+    printf "  %-20s" "claude-shim.py"
+    if [[ -f "$SHIM_PATH" ]]; then
+        green "OK"; echo ""
+    else
+        red "MISSING"; echo ""
+        ok=false
+    fi
+
+    # Check linear-cli
+    printf "  %-20s" "linear-cli.py"
+    if [[ -f "$LINEAR_CLI" ]]; then
+        green "OK"; echo ""
+    else
+        red "MISSING"; echo ""
+        ok=false
+    fi
+
+    echo ""
+    if $ok; then
+        green "  All checks passed!"; echo ""
+    else
+        yellow "  Some checks failed. Fix the issues above and re-run 'phonyhuman doctor'."; echo ""
+    fi
+    echo ""
+}
+
+# phonyhuman init [name]
+cmd_init() {
+    local name="${1:-}"
+    local target
+
+    if [[ -z "$name" ]]; then
+        target="symphony.toml"
+    else
+        # Strip .toml if provided, then add it back
+        name="${name%.toml}"
+        target="${name}.toml"
+    fi
+
+    if [[ -f "$target" ]]; then
+        die "$target already exists"
+    fi
+
+    # Find template
+    local template=""
+    if [[ -f "$TEMPLATE_DIR/example.toml" ]]; then
+        template="$TEMPLATE_DIR/example.toml"
+    elif [[ -f "$PHONYHUMAN_HOME/templates/example.toml" ]]; then
+        template="$PHONYHUMAN_HOME/templates/example.toml"
+    fi
+
+    if [[ -z "$template" ]]; then
+        # Generate inline if template not found
+        cat > "$target" <<'TOML'
+# ─────────────────────────────────────────────────────────────────────
+# phonyhuman — Project Configuration
+# ─────────────────────────────────────────────────────────────────────
+# Edit this file with your Linear + repo details, then run:
+#   phonyhuman run this-file.toml
+
+[linear]
+api_key = ""                  # Linear personal API token (lin_api_...)
+                              # Can also use LINEAR_API_KEY env var
+project_slug = ""             # From the project URL: linear.app/team/project/<SLUG>
+
+# Optional: customize which Linear states phonyhuman watches
+# active_states = ["Todo", "In Progress"]
+# terminal_states = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+
+[repo]
+url = ""                      # Git clone URL — SSH or HTTPS
+                              # Can also use SOURCE_REPO_URL env var
+
+# Optional: custom workspace hooks (shell commands)
+# after_create = "git clone --depth 1 \"$SOURCE_REPO_URL\" . && npm install"
+# before_run = "git pull origin main"
+# after_run = "npm run lint"
+
+[agent]
+max_concurrent = 5            # How many issues to work on in parallel
+max_turns = 20                # Max Claude turns per issue before pausing
+poll_interval_ms = 10000      # How often to check Linear for new issues (ms)
+
+[workspace]
+root = "~/symphony-workspaces" # Where issue workspaces are created
+
+# Optional: enable the live web dashboard
+# [server]
+# port = 4000
+
+# Optional: customize the prompt template sent to Claude
+# Uses Liquid syntax: {{ issue.identifier }}, {{ issue.title }}, etc.
+# [prompt]
+# template = """
+# Your custom prompt here...
+# """
+TOML
+    else
+        cp "$template" "$target"
+    fi
+
+    banner
+    green "  Created $target"; echo ""
+    echo ""
+    dim "  Edit it with your Linear + repo details, then run:"; echo ""
+    echo "    phonyhuman run $target"
+    echo ""
+}
+
+# phonyhuman update
+cmd_update() {
+    banner
+    echo "  Checking for updates..."
+
+    local api_url="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+    local auth_header=""
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        auth_header="Authorization: token $GITHUB_TOKEN"
+    fi
+
+    local release_json
+    if [[ -n "$auth_header" ]]; then
+        release_json=$(curl -sSL -H "$auth_header" "$api_url" 2>/dev/null) || die "Failed to check for updates"
+    else
+        release_json=$(curl -sSL "$api_url" 2>/dev/null) || die "Failed to check for updates"
+    fi
+
+    local latest_version
+    latest_version=$(echo "$release_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name','').lstrip('v'))" 2>/dev/null) || die "Failed to parse release info"
+
+    if [[ -z "$latest_version" ]]; then
+        die "Could not determine latest version"
+    fi
+
+    if [[ "$latest_version" == "$VERSION" ]]; then
+        green "  Already up to date ($VERSION)"; echo ""
+        echo ""
+        return 0
+    fi
+
+    echo "  Current: $VERSION"
+    echo "  Latest:  $latest_version"
+    echo ""
+
+    # Find tarball URL
+    local tarball_url
+    tarball_url=$(echo "$release_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for asset in data.get('assets', []):
+    if asset['name'].endswith('.tar.gz'):
+        print(asset['browser_download_url'])
+        break
+" 2>/dev/null)
+
+    if [[ -z "$tarball_url" ]]; then
+        die "No tarball found in latest release"
+    fi
+
+    echo "  Downloading v${latest_version}..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    if [[ -n "$auth_header" ]]; then
+        curl -sSL -H "$auth_header" -o "$tmpdir/phonyhuman.tar.gz" "$tarball_url" || die "Download failed"
+    else
+        curl -sSL -o "$tmpdir/phonyhuman.tar.gz" "$tarball_url" || die "Download failed"
+    fi
+
+    # Extract over existing install
+    tar xzf "$tmpdir/phonyhuman.tar.gz" -C "$PHONYHUMAN_HOME" --strip-components=0
+
+    # Ensure executable
+    chmod +x "$PHONYHUMAN_HOME/bin/phonyhuman"
+    chmod +x "$PHONYHUMAN_HOME/bin/symphony-escript" 2>/dev/null || true
+
+    echo ""
+    green "  Updated to v${latest_version}!"; echo ""
+    echo ""
+}
+
+# ── TOML parsing + workflow generation (ported from run-symphony.sh) ──
+
+generate_workflow() {
+    local config_file="$1"
+    local workflow_file="$2"
+    local shim_path="$3"
+
+    export PHONYHUMAN_SKILLS_DIR="$SKILLS_DIR"
+    python3 - "$config_file" "$workflow_file" "$shim_path" <<'PYEOF'
+import sys, os, tomllib, json
+
+config_file, workflow_file, shim_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(config_file, "rb") as f:
+    cfg = tomllib.load(f)
+
+linear   = cfg.get("linear", {})
+repo     = cfg.get("repo", {})
+agent    = cfg.get("agent", {})
+workspace = cfg.get("workspace", {})
+server   = cfg.get("server", {})
+prompt_cfg = cfg.get("prompt", {})
+
+api_key      = linear.get("api_key", "") or os.environ.get("LINEAR_API_KEY", "")
+slug         = linear.get("project_slug", "")
+repo_url     = repo.get("url", "") or os.environ.get("SOURCE_REPO_URL", "")
+max_agents   = agent.get("max_concurrent", 5)
+max_turns    = agent.get("max_turns", 20)
+poll_ms      = agent.get("poll_interval_ms", 10000)
+ws_root      = workspace.get("root", "~/symphony-workspaces")
+port         = server.get("port", None)
+
+active_states   = linear.get("active_states", ["Todo", "In Progress"])
+terminal_states = linear.get("terminal_states", ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
+
+errors = []
+if not api_key:      errors.append("linear.api_key (or LINEAR_API_KEY env var)")
+if not slug:         errors.append("linear.project_slug")
+if not repo_url:     errors.append("repo.url (or SOURCE_REPO_URL env var)")
+if errors:
+    print("MISSING:" + "|".join(errors))
+    sys.exit(1)
+
+# Export for Symphony's hook to use
+print(f"EXPORT:LINEAR_API_KEY={api_key}")
+print(f"EXPORT:SOURCE_REPO_URL={repo_url}")
+if port:
+    print(f"PORT:{port}")
+
+# Custom prompt or default
+linear_cli_path = os.path.join(os.path.dirname(shim_path), "linear-cli.py")
+
+# Resolve skills directory
+skills_dir = os.environ.get("PHONYHUMAN_SKILLS_DIR", "")
+if not skills_dir:
+    bin_dir = os.path.dirname(shim_path)
+    parent_dir = os.path.dirname(bin_dir)
+    if os.path.isdir(os.path.join(parent_dir, "skills")):
+        skills_dir = os.path.join(parent_dir, "skills")
+
+custom_prompt = prompt_cfg.get("template", "")
+if not custom_prompt:
+    # Try loading from template file
+    template_candidates = [
+        os.path.join(os.path.dirname(shim_path), "..", "templates", "default-prompt.md"),
+        os.path.join(os.environ.get("PHONYHUMAN_HOME", os.path.expanduser("~/.phonyhuman")), "templates", "default-prompt.md"),
+    ]
+    for candidate in template_candidates:
+        candidate = os.path.normpath(candidate)
+        if os.path.isfile(candidate):
+            with open(candidate) as tf:
+                custom_prompt = tf.read()
+            # Inject resolved paths into placeholders
+            custom_prompt = custom_prompt.replace("{{skills_path}}", skills_dir)
+            custom_prompt = custom_prompt.replace("{{linear_cli_path}}", linear_cli_path)
+            break
+
+    if not custom_prompt:
+        # Inline fallback (minimal prompt for repo checkouts without templates)
+        custom_prompt = r"""You are working on a Linear ticket `{{ issue.identifier }}`
+
+{% if attempt %}
+Continuation context:
+
+- This is retry attempt #{{ attempt }} because the ticket is still in an active state.
+- Resume from the current workspace state instead of restarting from scratch.
+- Do not repeat already-completed investigation or validation unless needed for new code changes.
+{% endif %}
+
+Issue context:
+Identifier: {{ issue.identifier }}
+Title: {{ issue.title }}
+Current status: {{ issue.state }}
+Labels: {{ issue.labels }}
+URL: {{ issue.url }}
+
+Description:
+{% if issue.description %}
+{{ issue.description }}
+{% else %}
+No description provided.
+{% endif %}
+
+Instructions:
+
+1. This is an unattended orchestration session. Never ask a human to perform follow-up actions.
+2. Only stop early for a true blocker (missing required auth/permissions/secrets).
+3. Final message must report completed actions and blockers only.
+4. Work only in the provided repository copy. Do not touch any other path.
+
+## Linear CLI — interact with Linear issues
+
+You have a CLI tool to read/write Linear issues. Use it via bash:
+
+```
+# Get full issue details
+python3 """ + linear_cli_path + r""" get-issue {{ issue.identifier }}
+
+# Post a progress comment
+python3 """ + linear_cli_path + r""" comment <issue-uuid> "Your comment here"
+
+# Edit an existing comment (use for workpad updates)
+python3 """ + linear_cli_path + r""" edit-comment <comment-uuid> "Updated body"
+
+# Get all comments on the issue
+python3 """ + linear_cli_path + r""" get-comments {{ issue.identifier }}
+
+# Move issue to a new state
+python3 """ + linear_cli_path + r""" set-state {{ issue.identifier }} "Done"
+python3 """ + linear_cli_path + r""" set-state {{ issue.identifier }} "In Progress"
+
+# Attach a URL (e.g. PR link) to the issue
+python3 """ + linear_cli_path + r""" attach-url {{ issue.identifier }} <url> [title]
+```
+
+The LINEAR_API_KEY is already in your environment.
+
+## Workflow
+
+1. **Start**: Fetch the issue to get its UUID. Move it to "In Progress" if it's in "Todo".
+2. **Workpad**: Create a single comment titled `## Workpad` on the issue to track progress. Use `comment` to create it, then `edit-comment` to update it as you work.
+3. **Implement**: Read the requirements, plan your approach, write code, commit with clear messages.
+4. **Validate**: Run tests/build to confirm your changes work. Record results in the workpad.
+5. **Update**: Keep the workpad comment current — check off completed items, add notes.
+6. **Finish**: When all acceptance criteria are met, post a final summary in the workpad and move the issue to "Done".
+
+## Default posture
+
+- Start by understanding the ticket requirements fully before writing any code.
+- Plan your approach, then implement.
+- Write clean commits with descriptive messages.
+- Run relevant tests before considering work complete.
+- Always update the workpad comment with progress and results.
+- Move the issue to "Done" when complete.
+"""
+
+# Build active/terminal state YAML lines
+def yaml_list(items):
+    return "\n".join(f"    - {s}" for s in items)
+
+after_create = repo.get("after_create", 'git clone --depth 1 "$SOURCE_REPO_URL" .')
+before_run   = repo.get("before_run", "")
+after_run    = repo.get("after_run", "")
+
+hooks_section = f"  after_create: |\n    {after_create}\n"
+if before_run:
+    hooks_section += f"  before_run: |\n    {before_run}\n"
+if after_run:
+    hooks_section += f"  after_run: |\n    {after_run}\n"
+
+workflow = f"""---
+tracker:
+  kind: linear
+  project_slug: "{slug}"
+  active_states:
+{yaml_list(active_states)}
+  terminal_states:
+{yaml_list(terminal_states)}
+polling:
+  interval_ms: {poll_ms}
+workspace:
+  root: {ws_root}
+hooks:
+{hooks_section}agent:
+  max_concurrent_agents: {max_agents}
+  max_turns: {max_turns}
+codex:
+  command: "python3 {shim_path}"
+  approval_policy: never
+  thread_sandbox: workspace-write
+  turn_sandbox_policy:
+    type: workspaceWrite
+---
+
+{custom_prompt}
+"""
+
+with open(workflow_file, "w") as f:
+    f.write(workflow)
+
+print("OK")
+PYEOF
+}
+
+# phonyhuman run <config>
+cmd_run() {
+    local config_arg="${1:-}"
+    shift 2>/dev/null || true
+
+    banner
+
+    # ── Resolve config file ──────────────────────────────────────────
+    local config_file
+    if [[ -z "$config_arg" ]]; then
+        # Try common defaults
+        if [[ -f "symphony.toml" ]]; then
+            config_file="symphony.toml"
+        elif [[ -f "phonyhuman.toml" ]]; then
+            config_file="phonyhuman.toml"
+        else
+            die "No config file specified and no symphony.toml or phonyhuman.toml found.
+  Create one with: phonyhuman init my-project"
+        fi
+    elif [[ -f "$config_arg" ]]; then
+        config_file="$config_arg"
+    elif [[ -f "${config_arg}.toml" ]]; then
+        config_file="${config_arg}.toml"
+    else
+        die "Config file not found: $config_arg
+  Create one with: phonyhuman init ${config_arg%.toml}"
+    fi
+
+    config_file="$(cd "$(dirname "$config_file")" && pwd)/$(basename "$config_file")"
+    dim "  Config: $config_file"; echo ""
+
+    # ── Ensure runtime ───────────────────────────────────────────────
+    ensure_runtime
+
+    # ── Preflight checks ─────────────────────────────────────────────
+    if ! command -v claude &>/dev/null; then
+        die "'claude' CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code"
+    fi
+
+    if ! command -v python3 &>/dev/null; then
+        die "python3 not found"
+    fi
+
+    if [[ ! -f "$SHIM_PATH" ]]; then
+        die "claude-shim.py not found at $SHIM_PATH"
+    fi
+
+    # ── Build escript if needed ───────────────────────────────────────
+    if [[ ! -f "$SYMPHONY_ESCRIPT" || ! -x "$SYMPHONY_ESCRIPT" ]]; then
+        # Check if we're in a repo checkout with Elixir source
+        local elixir_dir="$SCRIPT_PATH/../elixir"
+        if [[ -d "$elixir_dir" ]]; then
+            if ! find_elixir; then
+                die "Elixir not found. Cannot build escript.
+  Install Elixir: mise install elixir@1.19
+  Or install phonyhuman from a release: curl -sSL ... | sh"
+            fi
+            echo "  Building Symphony escript..."
+            if (cd "$elixir_dir" && mix local.hex --force --if-missing >/dev/null 2>&1 && mix setup >/dev/null 2>&1 && mix build >/dev/null 2>&1); then
+                # Copy built escript to expected location
+                if [[ -f "$elixir_dir/bin/symphony" && "$SYMPHONY_ESCRIPT" != "$elixir_dir/bin/symphony" ]]; then
+                    cp "$elixir_dir/bin/symphony" "$SYMPHONY_ESCRIPT"
+                fi
+                green "  Built successfully."; echo ""
+            else
+                die "Failed to build escript. Run manually:
+  cd $elixir_dir && mix setup && mix build"
+            fi
+        else
+            die "Symphony escript not found at $SYMPHONY_ESCRIPT
+  Re-install phonyhuman: curl -sSL https://raw.githubusercontent.com/$GITHUB_REPO/main/install.sh | sh"
+        fi
+    fi
+
+    # ── Parse config and generate workflow ────────────────────────────
+    local workflow_file
+    workflow_file=$(mktemp /tmp/phonyhuman-workflow-XXXXXX.md)
+    trap 'rm -f "$workflow_file"' EXIT
+
+    local output
+    output=$(generate_workflow "$config_file" "$workflow_file" "$SHIM_PATH" 2>&1)
+
+    # Check for missing fields
+    if echo "$output" | grep -q "^MISSING:"; then
+        local missing
+        missing=$(echo "$output" | grep "^MISSING:" | sed 's/^MISSING://' | tr '|' '\n')
+        red "  Missing required config:"; echo ""
+        while IFS= read -r field; do
+            echo "    - $field"
+        done <<< "$missing"
+        echo ""
+        die "Fill these in: $config_file"
+    fi
+
+    # Extract exports
+    while IFS= read -r line; do
+        if [[ "$line" == EXPORT:* ]]; then
+            export "${line#EXPORT:}"
+        fi
+    done <<< "$output"
+
+    # Extract port
+    local port_flag=""
+    while IFS= read -r line; do
+        if [[ "$line" == PORT:* ]]; then
+            port_flag="${line#PORT:}"
+        fi
+    done <<< "$output"
+
+    # ── Validate Linear connection ────────────────────────────────────
+    dim "  Validating Linear..."; echo ""
+    local linear_user
+    linear_user=$(python3 -c "
+import json, urllib.request, sys, os
+req = urllib.request.Request('https://api.linear.app/graphql',
+    data=json.dumps({'query': '{ viewer { name } }'}).encode(),
+    headers={'Content-Type': 'application/json', 'Authorization': os.environ['LINEAR_API_KEY']})
+try:
+    with urllib.request.urlopen(req, timeout=10) as r:
+        d = json.loads(r.read())
+        if 'errors' in d: sys.exit(1)
+        print(d['data']['viewer']['name'])
+except: sys.exit(1)
+" 2>/dev/null) || die "Linear API key is invalid"
+
+    green "  Connected as: $linear_user"; echo ""
+
+    # ── Read display values ───────────────────────────────────────────
+    local display_vals
+    display_vals=$(python3 -c "
+import tomllib, os
+with open('$config_file', 'rb') as f: c = tomllib.load(f)
+print(c.get('linear',{}).get('project_slug',''))
+print(c.get('repo',{}).get('url','') or os.environ.get('SOURCE_REPO_URL',''))
+print(c.get('agent',{}).get('max_concurrent',5))
+print(c.get('agent',{}).get('max_turns',20))
+print(c.get('agent',{}).get('poll_interval_ms',10000))
+print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
+")
+    local slug repo agents turns poll wsroot
+    IFS=$'\n' read -rd '' slug repo agents turns poll wsroot <<< "$display_vals" || true
+
+    # ── Create workspace root ─────────────────────────────────────────
+    local wsroot_expanded="${wsroot/#\~/$HOME}"
+    mkdir -p "$wsroot_expanded"
+
+    # ── Launch ────────────────────────────────────────────────────────
+    echo ""
+    bold "  Launching"; echo ""
+    echo "  ├─ Project:   $(cyan "$slug")"
+    echo "  ├─ Repo:      $(cyan "$repo")"
+    echo "  ├─ Agents:    $(cyan "$agents") max concurrent"
+    echo "  ├─ Turns:     $(cyan "$turns") per agent"
+    echo "  ├─ Polling:   $(cyan "${poll}ms")"
+    echo "  ├─ Workspace: $(cyan "$wsroot")"
+    echo "  └─ Engine:    $(green "Claude Code")"
+    echo ""
+
+    local cmd=("$SYMPHONY_ESCRIPT" "$workflow_file" --i-understand-that-this-will-be-running-without-the-usual-guardrails)
+
+    if [[ -n "$port_flag" ]]; then
+        cmd+=(--port "$port_flag")
+    fi
+
+    cmd+=("$@")
+
+    exec "${cmd[@]}"
+}
+
+# ── Main dispatch ────────────────────────────────────────────────────
+
+main() {
+    local cmd="${1:-help}"
+    shift 2>/dev/null || true
+
+    case "$cmd" in
+        init)
+            cmd_init "$@"
+            ;;
+        run)
+            cmd_run "$@"
+            ;;
+        doctor|doc)
+            cmd_doctor
+            ;;
+        version|--version|-V)
+            cmd_version
+            ;;
+        update|upgrade)
+            cmd_update
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            red "  Unknown command: $cmd"; echo ""
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir + OTP 28
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: Build escript
+        working-directory: elixir
+        run: |
+          mix local.hex --force --if-missing
+          mix local.rebar --force --if-missing
+          mix setup
+          mix build
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create templates directory
+        run: mkdir -p templates
+
+      - name: Copy example.toml to templates
+        run: cp example.toml templates/example.toml
+
+      - name: Package tarball
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          STAGING="phonyhuman-${VERSION}"
+          mkdir -p "$STAGING/bin" "$STAGING/templates"
+
+          # CLI wrapper
+          cp bin/phonyhuman "$STAGING/bin/phonyhuman"
+          chmod +x "$STAGING/bin/phonyhuman"
+
+          # Elixir escript (renamed to avoid collision)
+          cp elixir/bin/symphony "$STAGING/bin/symphony-escript"
+          chmod +x "$STAGING/bin/symphony-escript"
+
+          # Python scripts
+          cp claude-shim.py "$STAGING/bin/claude-shim.py"
+          cp linear-cli.py "$STAGING/bin/linear-cli.py"
+
+          # Template
+          cp example.toml "$STAGING/templates/example.toml"
+          cp templates/default-prompt.md "$STAGING/templates/default-prompt.md"
+
+          # Skills
+          cp -r skills "$STAGING/skills"
+
+          # mise config for Erlang
+          cat > "$STAGING/.mise.toml" <<EOF
+          [tools]
+          erlang = "28"
+          EOF
+
+          # Version file
+          echo "$VERSION" > "$STAGING/version"
+
+          # Create tarball
+          tar czf "phonyhuman-${VERSION}.tar.gz" \
+            -C "$STAGING" \
+            bin/ templates/ skills/ .mise.toml version
+
+          echo "TARBALL=phonyhuman-${VERSION}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: phonyhuman ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: ${{ env.TARBALL }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

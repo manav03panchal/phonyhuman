@@ -2,12 +2,26 @@
 # ─────────────────────────────────────────────────────────────────────
 # run-symphony.sh — Plug-and-play Symphony launcher with Claude Code
 #
+# DEPRECATED: Use 'phonyhuman' instead.
+#   Install: curl -sSL https://raw.githubusercontent.com/manav03panchal/symphony-claude/main/install.sh | sh
+#   Then:    phonyhuman run my-project.toml
+#
 # Usage:
 #   ./run-symphony.sh my-project.toml
 #   ./run-symphony.sh                    # uses ./symphony.toml
 #   ./run-symphony.sh --init             # generate a new config
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
+
+# ── Deprecation notice ───────────────────────────────────────────────
+echo ""
+printf "\033[33m  ⚠  run-symphony.sh is deprecated. Use 'phonyhuman' instead:\033[0m\n"
+echo ""
+printf "\033[36m  curl -sSL https://raw.githubusercontent.com/manav03panchal/symphony-claude/main/install.sh | sh\033[0m\n"
+printf "\033[36m  phonyhuman run my-project.toml\033[0m\n"
+echo ""
+printf "\033[90m  Continuing with legacy launcher...\033[0m\n"
+echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYMPHONY_BIN="$SCRIPT_DIR/elixir/bin/symphony"
