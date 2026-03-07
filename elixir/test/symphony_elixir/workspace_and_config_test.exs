@@ -882,4 +882,54 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
     assert Config.workflow_prompt() == workflow_prompt
   end
+
+  test "config with [agent] section loads agent-server settings correctly" do
+    workflow = """
+    ---
+    tracker:
+      kind: "linear"
+      api_key: "token"
+      project_slug: "project"
+    agent:
+      max_concurrent_agents: 5
+      command: "codex app-server --custom"
+      turn_timeout_ms: 7200000
+      read_timeout_ms: 10000
+      stall_timeout_ms: 600000
+      approval_policy: "on-request"
+      thread_sandbox: "workspace-write"
+    ---
+    Test prompt.
+    """
+
+    File.write!(Workflow.workflow_file_path(), workflow)
+    if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
+
+    assert Config.codex_command() == "codex app-server --custom"
+    assert Config.codex_turn_timeout_ms() == 7_200_000
+    assert Config.codex_read_timeout_ms() == 10_000
+    assert Config.codex_stall_timeout_ms() == 600_000
+    assert Config.codex_approval_policy() == "on-request"
+    assert Config.codex_thread_sandbox() == "workspace-write"
+    assert Config.max_concurrent_agents() == 5
+  end
+
+  test "config with [codex] section still works and logs deprecation warning" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex app-server --legacy",
+      codex_turn_timeout_ms: 1_800_000,
+      codex_read_timeout_ms: 2_000,
+      codex_stall_timeout_ms: 120_000
+    )
+
+    log =
+      capture_log(fn ->
+        assert Config.codex_command() == "codex app-server --legacy"
+        assert Config.codex_turn_timeout_ms() == 1_800_000
+        assert Config.codex_read_timeout_ms() == 2_000
+        assert Config.codex_stall_timeout_ms() == 120_000
+      end)
+
+    assert log =~ "Config section [codex] is deprecated, use [agent] instead"
+  end
 end

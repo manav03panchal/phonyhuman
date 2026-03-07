@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Config do
   Runtime configuration loaded from `WORKFLOW.md`.
   """
 
+  require Logger
+
   alias NimbleOptions
   alias SymphonyElixir.Workflow
 
@@ -40,6 +42,9 @@ defmodule SymphonyElixir.Config do
     }
   }
   @default_codex_thread_sandbox "workspace-write"
+  # Keys that can appear under either [agent] (preferred) or [codex] (deprecated).
+  @agent_server_keys ~w(command turn_timeout_ms read_timeout_ms stall_timeout_ms)
+
   @default_observability_enabled true
   @default_observability_refresh_ms 1_000
   @default_observability_render_interval_ms 16
@@ -450,7 +455,7 @@ defmodule SymphonyElixir.Config do
       polling: extract_polling_options(section_map(config, "polling")),
       workspace: extract_workspace_options(section_map(config, "workspace")),
       agent: extract_agent_options(section_map(config, "agent")),
-      codex: extract_codex_options(section_map(config, "codex")),
+      codex: extract_codex_options(resolve_agent_server_section(config)),
       hooks: extract_hooks_options(section_map(config, "hooks")),
       observability: extract_observability_options(section_map(config, "observability")),
       server: extract_server_options(section_map(config, "server"))
@@ -516,6 +521,22 @@ defmodule SymphonyElixir.Config do
     %{}
     |> put_if_present(:port, non_negative_integer_value(Map.get(section, "port")))
     |> put_if_present(:host, scalar_string_value(Map.get(section, "host")))
+  end
+
+  defp resolve_agent_server_section(config) do
+    agent = section_map(config, "agent")
+    codex = section_map(config, "codex")
+
+    agent_subset = Map.take(agent, @agent_server_keys)
+    codex_subset = Map.take(codex, @agent_server_keys)
+
+    fallback_keys = Map.keys(codex_subset) -- Map.keys(agent_subset)
+
+    if fallback_keys != [] do
+      Logger.warning("Config section [codex] is deprecated, use [agent] instead")
+    end
+
+    Map.merge(codex_subset, agent_subset)
   end
 
   defp section_map(config, key) do
@@ -684,17 +705,27 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp fetch_value(paths, default) do
+  defp fetch_agent_server_value(key, default) do
     config = workflow_config()
 
-    case resolve_config_value(config, paths) do
-      :missing -> default
-      value -> value
+    case resolve_config_value(config, [["agent", key]]) do
+      :missing ->
+        case resolve_config_value(config, [["codex", key]]) do
+          :missing ->
+            default
+
+          value ->
+            Logger.warning("Config section [codex] is deprecated, use [agent] instead")
+            value
+        end
+
+      value ->
+        value
     end
   end
 
   defp resolve_codex_approval_policy do
-    case fetch_value([["codex", "approval_policy"]], :missing) do
+    case fetch_agent_server_value("approval_policy", :missing) do
       :missing ->
         {:ok, @default_codex_approval_policy}
 
@@ -719,7 +750,7 @@ defmodule SymphonyElixir.Config do
   end
 
   defp resolve_codex_thread_sandbox do
-    case fetch_value([["codex", "thread_sandbox"]], :missing) do
+    case fetch_agent_server_value("thread_sandbox", :missing) do
       :missing ->
         {:ok, @default_codex_thread_sandbox}
 
@@ -741,7 +772,7 @@ defmodule SymphonyElixir.Config do
   end
 
   defp resolve_codex_turn_sandbox_policy(workspace) do
-    case fetch_value([["codex", "turn_sandbox_policy"]], :missing) do
+    case fetch_agent_server_value("turn_sandbox_policy", :missing) do
       :missing ->
         {:ok, default_codex_turn_sandbox_policy(workspace)}
 
