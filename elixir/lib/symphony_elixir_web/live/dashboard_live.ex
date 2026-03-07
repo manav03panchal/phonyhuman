@@ -95,7 +95,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
             <p class="metric-label">Total tokens</p>
             <p class="metric-value numeric"><%= format_int(@payload.agent_totals.total_tokens) %></p>
             <p class="metric-detail numeric">
-              In <%= format_int(@payload.agent_totals.input_tokens) %> / Out <%= format_int(@payload.agent_totals.output_tokens) %>
+              In <%= format_int(@payload.agent_totals.input_tokens) %> / Out <%= format_int(@payload.agent_totals.output_tokens) %> / Cache <%= format_int(@payload.agent_totals.cache_read_tokens) %>
             </p>
           </article>
 
@@ -104,6 +104,14 @@ defmodule SymphonyElixirWeb.DashboardLive do
             <p class="metric-value numeric"><%= format_runtime_seconds(total_runtime_seconds(@payload, @now)) %></p>
             <p class="metric-detail">Total agent runtime across completed and active sessions.</p>
           </article>
+
+          <%= if @payload.agent_totals.cost_usd > 0 do %>
+            <article class="metric-card">
+              <p class="metric-label">Cost</p>
+              <p class="metric-value numeric"><%= format_usd(@payload.agent_totals.cost_usd) %></p>
+              <p class="metric-detail">Aggregate estimated cost across all sessions.</p>
+            </article>
+          <% end %>
         </section>
 
         <section class="section-card">
@@ -197,6 +205,12 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       <div class="token-stack numeric">
                         <span>Total: <%= format_int(entry.tokens.total_tokens) %></span>
                         <span class="muted">In <%= format_int(entry.tokens.input_tokens) %> / Out <%= format_int(entry.tokens.output_tokens) %></span>
+                        <%= if entry.tokens.cost_usd > 0 do %>
+                          <span class="muted"><%= format_usd(entry.tokens.cost_usd) %></span>
+                        <% end %>
+                        <%= if entry.model do %>
+                          <span class="muted"><%= entry.model %></span>
+                        <% end %>
                       </div>
                     </td>
                   </tr>
@@ -298,6 +312,12 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp runtime_seconds_from_started_at(_started_at, _now), do: 0
+
+  defp format_usd(value) when is_number(value) do
+    "$#{:erlang.float_to_binary(value / 1, decimals: 2)}"
+  end
+
+  defp format_usd(_value), do: "$0.00"
 
   defp format_int(value) when is_integer(value) do
     value
