@@ -22,7 +22,13 @@ defmodule SymphonyElixir.Orchestrator do
     cache_read_tokens: 0,
     cache_creation_tokens: 0,
     cost_usd: 0.0,
-    model: nil
+    model: nil,
+    tool_executions: [],
+    api_errors: 0,
+    lines_changed: 0,
+    commits_count: 0,
+    prs_count: 0,
+    active_time_seconds: 0
   }
 
   defmodule State do
@@ -196,6 +202,26 @@ defmodule SymphonyElixir.Orchestrator do
         {:noreply, dispatch_probe_agent(state)}
       end
     end
+  end
+
+  def handle_info({:otel_metrics, session_id, metrics}, %{running: running} = state)
+      when is_binary(session_id) and is_map(metrics) do
+    case find_issue_id_for_session(running, session_id) do
+      nil ->
+        Logger.warning("OTel metrics received for unknown session_id=#{session_id}; discarding")
+        {:noreply, state}
+
+      issue_id ->
+        running_entry = Map.get(running, issue_id)
+        updated_entry = merge_otel_metrics(running_entry, metrics)
+        state = %{state | running: Map.put(running, issue_id, updated_entry)}
+        notify_dashboard()
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:otel_metrics, _session_id, _metrics}, state) do
+    {:noreply, state}
   end
 
   def handle_info(msg, state) do
@@ -663,7 +689,18 @@ defmodule SymphonyElixir.Orchestrator do
             agent_model: nil,
             turn_count: 0,
             retry_attempt: normalize_retry_attempt(attempt),
-            started_at: DateTime.utc_now()
+            started_at: DateTime.utc_now(),
+            otel_input_tokens: 0,
+            otel_output_tokens: 0,
+            otel_cache_read_tokens: 0,
+            otel_cache_creation_tokens: 0,
+            otel_cost_usd: 0.0,
+            otel_tool_executions: [],
+            otel_api_errors: 0,
+            otel_lines_changed: 0,
+            otel_commits_count: 0,
+            otel_prs_count: 0,
+            otel_active_time_seconds: 0
           })
 
         %{
@@ -978,7 +1015,18 @@ defmodule SymphonyElixir.Orchestrator do
           last_agent_timestamp: metadata.last_agent_timestamp,
           last_agent_message: metadata.last_agent_message,
           last_agent_event: metadata.last_agent_event,
-          runtime_seconds: running_seconds(metadata.started_at, now)
+          runtime_seconds: running_seconds(metadata.started_at, now),
+          otel_input_tokens: Map.get(metadata, :otel_input_tokens, 0),
+          otel_output_tokens: Map.get(metadata, :otel_output_tokens, 0),
+          otel_cache_read_tokens: Map.get(metadata, :otel_cache_read_tokens, 0),
+          otel_cache_creation_tokens: Map.get(metadata, :otel_cache_creation_tokens, 0),
+          otel_cost_usd: Map.get(metadata, :otel_cost_usd, 0.0),
+          otel_tool_executions: Map.get(metadata, :otel_tool_executions, []),
+          otel_api_errors: Map.get(metadata, :otel_api_errors, 0),
+          otel_lines_changed: Map.get(metadata, :otel_lines_changed, 0),
+          otel_commits_count: Map.get(metadata, :otel_commits_count, 0),
+          otel_prs_count: Map.get(metadata, :otel_prs_count, 0),
+          otel_active_time_seconds: Map.get(metadata, :otel_active_time_seconds, 0)
         }
       end)
 
@@ -1156,7 +1204,13 @@ defmodule SymphonyElixir.Orchestrator do
           cache_read_tokens: 0,
           cache_creation_tokens: 0,
           cost_usd: 0.0,
-          model: nil
+          model: nil,
+          tool_executions: Map.get(running_entry, :otel_tool_executions, []),
+          api_errors: Map.get(running_entry, :otel_api_errors, 0),
+          lines_changed: Map.get(running_entry, :otel_lines_changed, 0),
+          commits_count: Map.get(running_entry, :otel_commits_count, 0),
+          prs_count: Map.get(running_entry, :otel_prs_count, 0),
+          active_time_seconds: Map.get(running_entry, :otel_active_time_seconds, 0)
         }
       )
 
@@ -1451,7 +1505,18 @@ defmodule SymphonyElixir.Orchestrator do
             turn_count: 0,
             retry_attempt: 0,
             started_at: DateTime.utc_now(),
-            is_fleet_probe: true
+            is_fleet_probe: true,
+            otel_input_tokens: 0,
+            otel_output_tokens: 0,
+            otel_cache_read_tokens: 0,
+            otel_cache_creation_tokens: 0,
+            otel_cost_usd: 0.0,
+            otel_tool_executions: [],
+            otel_api_errors: 0,
+            otel_lines_changed: 0,
+            otel_commits_count: 0,
+            otel_prs_count: 0,
+            otel_active_time_seconds: 0
           })
 
         %{
@@ -1518,6 +1583,27 @@ defmodule SymphonyElixir.Orchestrator do
     delta_model = Map.get(token_delta, :model)
     model = if delta_model, do: delta_model, else: Map.get(agent_totals, :model)
 
+    tool_executions =
+      Map.get(agent_totals, :tool_executions, []) ++ Map.get(token_delta, :tool_executions, [])
+
+    api_errors =
+      Map.get(agent_totals, :api_errors, 0) + Map.get(token_delta, :api_errors, 0)
+
+    lines_changed =
+      max(Map.get(agent_totals, :lines_changed, 0), Map.get(token_delta, :lines_changed, 0))
+
+    commits_count =
+      max(Map.get(agent_totals, :commits_count, 0), Map.get(token_delta, :commits_count, 0))
+
+    prs_count =
+      max(Map.get(agent_totals, :prs_count, 0), Map.get(token_delta, :prs_count, 0))
+
+    active_time_seconds =
+      max(
+        Map.get(agent_totals, :active_time_seconds, 0),
+        Map.get(token_delta, :active_time_seconds, 0)
+      )
+
     %{
       input_tokens: max(0, input_tokens),
       output_tokens: max(0, output_tokens),
@@ -1526,7 +1612,13 @@ defmodule SymphonyElixir.Orchestrator do
       cache_read_tokens: max(0, cache_read_tokens),
       cache_creation_tokens: max(0, cache_creation_tokens),
       cost_usd: max(0.0, cost_usd),
-      model: model
+      model: model,
+      tool_executions: tool_executions,
+      api_errors: max(0, api_errors),
+      lines_changed: max(0, lines_changed),
+      commits_count: max(0, commits_count),
+      prs_count: max(0, prs_count),
+      active_time_seconds: max(0, active_time_seconds)
     }
   end
 
@@ -1906,4 +1998,173 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp integer_like(_value), do: nil
+
+  # --- OTel metric integration ---
+
+  defp find_issue_id_for_session(running, session_id) when is_map(running) and is_binary(session_id) do
+    Enum.find_value(running, fn
+      {issue_id, %{session_id: ^session_id}} -> issue_id
+      _ -> nil
+    end)
+  end
+
+  defp merge_otel_metrics(running_entry, metrics) when is_map(running_entry) and is_map(metrics) do
+    running_entry
+    |> merge_otel_token_data(metrics)
+    |> merge_otel_tool_executions(metrics)
+    |> merge_otel_api_errors(metrics)
+    |> merge_otel_lines_changed(metrics)
+    |> merge_otel_commits_count(metrics)
+    |> merge_otel_prs_count(metrics)
+    |> merge_otel_active_time(metrics)
+  end
+
+  defp merge_otel_token_data(entry, metrics) do
+    token_data = Map.get(metrics, "claude_code.token.usage", [])
+    cost_data = Map.get(metrics, "claude_code.cost.usage", [])
+
+    input = otel_token_value(token_data, "input")
+    output = otel_token_value(token_data, "output")
+    cache_read = otel_token_value(token_data, "cache_read")
+    cache_creation = otel_token_value(token_data, "cache_creation")
+    cost = otel_cost_value(cost_data)
+
+    entry
+    |> maybe_update_otel(:otel_input_tokens, input)
+    |> maybe_update_otel(:otel_output_tokens, output)
+    |> maybe_update_otel(:otel_cache_read_tokens, cache_read)
+    |> maybe_update_otel(:otel_cache_creation_tokens, cache_creation)
+    |> maybe_update_otel_float(:otel_cost_usd, cost)
+  end
+
+  defp otel_token_value(data_points, type) when is_list(data_points) do
+    Enum.find_value(data_points, fn
+      %{value: value, attributes: %{"type" => ^type}} when is_integer(value) -> value
+      _ -> nil
+    end)
+  end
+
+  defp otel_cost_value(data_points) when is_list(data_points) do
+    Enum.find_value(data_points, fn
+      %{value: value} when is_number(value) -> value
+      _ -> nil
+    end)
+  end
+
+  defp otel_cost_value(_), do: nil
+
+  defp maybe_update_otel(entry, _key, nil), do: entry
+  defp maybe_update_otel(entry, key, value) when is_integer(value) and value >= 0 do
+    Map.put(entry, key, value)
+  end
+  defp maybe_update_otel(entry, _key, _value), do: entry
+
+  defp maybe_update_otel_float(entry, _key, nil), do: entry
+  defp maybe_update_otel_float(entry, key, value) when is_number(value) and value >= 0 do
+    Map.put(entry, key, value / 1)
+  end
+  defp maybe_update_otel_float(entry, _key, _value), do: entry
+
+  defp merge_otel_tool_executions(entry, metrics) do
+    events = Map.get(metrics, :events, [])
+
+    tool_executions =
+      Enum.flat_map(events, fn
+        %{name: "claude_code.tool_result", attributes: attrs} when is_map(attrs) ->
+          [%{
+            name: Map.get(attrs, "tool_name", "unknown"),
+            duration_ms: otel_numeric(Map.get(attrs, "duration_ms", 0)),
+            success: Map.get(attrs, "success", true)
+          }]
+
+        _ ->
+          []
+      end)
+
+    if tool_executions != [] do
+      existing = Map.get(entry, :otel_tool_executions, [])
+      Map.put(entry, :otel_tool_executions, existing ++ tool_executions)
+    else
+      entry
+    end
+  end
+
+  defp merge_otel_api_errors(entry, metrics) do
+    metric_count = otel_sum_value(Map.get(metrics, "claude_code.api_error", []))
+
+    event_count =
+      metrics
+      |> Map.get(:events, [])
+      |> Enum.count(fn
+        %{name: "claude_code.api_error"} -> true
+        _ -> false
+      end)
+
+    total = metric_count + event_count
+
+    if total > 0 do
+      Map.put(entry, :otel_api_errors, Map.get(entry, :otel_api_errors, 0) + total)
+    else
+      entry
+    end
+  end
+
+  defp merge_otel_lines_changed(entry, metrics) do
+    value = otel_sum_value(Map.get(metrics, "claude_code.lines_of_code.count", []))
+
+    if value > 0 do
+      Map.put(entry, :otel_lines_changed, value)
+    else
+      entry
+    end
+  end
+
+  defp merge_otel_commits_count(entry, metrics) do
+    value = otel_sum_value(Map.get(metrics, "claude_code.commit.count", []))
+
+    if value > 0 do
+      Map.put(entry, :otel_commits_count, value)
+    else
+      entry
+    end
+  end
+
+  defp merge_otel_prs_count(entry, metrics) do
+    value = otel_sum_value(Map.get(metrics, "claude_code.pull_request.count", []))
+
+    if value > 0 do
+      Map.put(entry, :otel_prs_count, value)
+    else
+      entry
+    end
+  end
+
+  defp merge_otel_active_time(entry, metrics) do
+    value = otel_sum_value(Map.get(metrics, "claude_code.active_time.total", []))
+
+    if value > 0 do
+      Map.put(entry, :otel_active_time_seconds, value)
+    else
+      entry
+    end
+  end
+
+  defp otel_sum_value(data_points) when is_list(data_points) do
+    Enum.reduce(data_points, 0, fn
+      %{value: value}, acc when is_number(value) -> acc + value
+      _, acc -> acc
+    end)
+  end
+
+  defp otel_sum_value(_), do: 0
+
+  defp otel_numeric(value) when is_integer(value), do: value
+  defp otel_numeric(value) when is_float(value), do: round(value)
+  defp otel_numeric(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, _} -> n
+      :error -> 0
+    end
+  end
+  defp otel_numeric(_), do: 0
 end
