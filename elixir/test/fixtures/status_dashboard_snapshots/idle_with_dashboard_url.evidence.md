@@ -3,7 +3,7 @@
 │ Agents: 0/10
 │ Throughput: 0 tps
 │ Runtime: 0m 0s
-│ Tokens: in 0 | out 0 | cache 0 | total 0
+│ Tokens: in 0 | out 0 | cache 0 (0.0%) | total 0
 │ Rate Limits: unavailable
 │ Project: https://linear.app/project/project/issues
 │ Dashboard: http://127.0.0.1:4000/

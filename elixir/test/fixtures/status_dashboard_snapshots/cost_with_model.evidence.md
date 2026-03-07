@@ -3,7 +3,7 @@
 │ Agents: 0/10
 │ Throughput: 145 tps
 │ Runtime: 12m 34s
-│ Tokens: in 45,230 | out 8,120 | cache 31,500 | total 53,350
+│ Tokens: in 45,230 | out 8,120 | cache 31,500 (41.1%) | total 53,350
 │ Cost: $0.42  (claude-opus-4-6)
 │ Rate Limits: unavailable
 │ Project: https://linear.app/project/project/issues
