@@ -435,8 +435,29 @@ TOML
         done
     fi
 
+    # ── Add config to .gitignore ────────────────────────────────────
+    local gitignore_updated=false
+    if [[ -f ".gitignore" ]]; then
+        if ! grep -qF "$target" ".gitignore" 2>/dev/null; then
+            echo "" >> ".gitignore"
+            echo "# phonyhuman config (contains API key)" >> ".gitignore"
+            echo "$target" >> ".gitignore"
+            gitignore_updated=true
+        fi
+    else
+        cat > ".gitignore" <<GITIGNORE
+# phonyhuman config (contains API key)
+$target
+GITIGNORE
+        gitignore_updated=true
+    fi
+
     banner
     green "  Created $target"; echo ""
+
+    if $gitignore_updated; then
+        green "  Added $target to .gitignore"; echo ""
+    fi
 
     if [[ ${#copied_skills[@]} -gt 0 ]]; then
         green "  Packaged skills into $skills_dest/"; echo ""
@@ -448,9 +469,6 @@ TOML
 
     dim "  Edit it with your Linear + repo details, then run:"; echo ""
     echo "    phonyhuman run $target"
-    echo ""
-    yellow "  Tip: This file will contain your API key. Don't commit it."; echo ""
-    dim "  Use LINEAR_API_KEY env var instead, or keep this file outside your repo."; echo ""
     echo ""
 }
 
