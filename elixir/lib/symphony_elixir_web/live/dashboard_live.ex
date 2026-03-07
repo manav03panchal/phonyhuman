@@ -78,6 +78,20 @@ defmodule SymphonyElixirWeb.DashboardLive do
           </p>
         </section>
       <% else %>
+        <%= if @payload[:fleet_status] == "paused" do %>
+          <section class="error-card" style="border-left: 4px solid #e53e3e;">
+            <h2 class="error-title">
+              Fleet Paused
+            </h2>
+            <p class="error-copy">
+              <strong>Reason:</strong> <%= @payload[:fleet_pause_reason] || "Unknown" %>
+            </p>
+            <p class="error-copy">
+              <strong>Resumes at:</strong> <%= @payload[:fleet_paused_until] || "Unknown" %>
+            </p>
+          </section>
+        <% end %>
+
         <section class="metric-grid">
           <article class="metric-card">
             <p class="metric-label">Running</p>

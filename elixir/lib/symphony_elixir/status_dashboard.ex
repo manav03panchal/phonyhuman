@@ -314,7 +314,10 @@ defmodule SymphonyElixir.StatusDashboard do
              retrying: retrying,
              agent_totals: agent_totals,
              rate_limits: Map.get(snapshot, :rate_limits),
-             polling: Map.get(snapshot, :polling)
+             polling: Map.get(snapshot, :polling),
+             fleet_status: Map.get(snapshot, :fleet_status, "running"),
+             fleet_paused_until: Map.get(snapshot, :fleet_paused_until),
+             fleet_pause_reason: Map.get(snapshot, :fleet_pause_reason)
            }},
           update_token_samples(token_samples, now_ms, total_tokens)
         }
@@ -347,12 +350,15 @@ defmodule SymphonyElixir.StatusDashboard do
         running_to_backoff_spacer = if(running == [], do: [], else: ["│"])
         backoff_rows = format_retry_rows(retrying)
 
+        fleet_status_line = format_fleet_status_line(snapshot)
+
         ([
            colorize("╭─ SYMPHONY STATUS", @ansi_bold),
            colorize("│ Agents: ", @ansi_bold) <>
              colorize("#{agent_count}", @ansi_green) <>
              colorize("/", @ansi_gray) <>
              colorize("#{max_agents}", @ansi_gray),
+           fleet_status_line,
            colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
            colorize("│ Runtime: ", @ansi_bold) <>
              colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
@@ -429,6 +435,17 @@ defmodule SymphonyElixir.StatusDashboard do
   defp format_project_refresh_line(_) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
   end
+
+  defp format_fleet_status_line(%{fleet_status: "paused"} = snapshot) do
+    reason = Map.get(snapshot, :fleet_pause_reason, "unknown")
+    paused_until = Map.get(snapshot, :fleet_paused_until, "unknown")
+
+    colorize("│ Fleet: ", @ansi_bold) <>
+      colorize("PAUSED", @ansi_red) <>
+      colorize(" — #{reason} (until #{paused_until})", @ansi_orange)
+  end
+
+  defp format_fleet_status_line(_snapshot), do: []
 
   defp format_cost_line(cost_usd, _model) when is_nil(cost_usd) or cost_usd == 0, do: []
 
@@ -579,7 +596,10 @@ defmodule SymphonyElixir.StatusDashboard do
              retrying: retrying,
              agent_totals: agent_totals,
              rate_limits: Map.get(snapshot, :rate_limits),
-             polling: Map.get(snapshot, :polling)
+             polling: Map.get(snapshot, :polling),
+             fleet_status: Map.get(snapshot, :fleet_status, "running"),
+             fleet_paused_until: Map.get(snapshot, :fleet_paused_until),
+             fleet_pause_reason: Map.get(snapshot, :fleet_pause_reason)
            }}
 
         _ ->

@@ -376,7 +376,10 @@ defmodule SymphonyElixir.ExtensionsTest do
                "cache_creation_tokens" => 0,
                "cost_usd" => 0
              },
-             "rate_limits" => %{"primary" => %{"remaining" => 11}}
+             "rate_limits" => %{"primary" => %{"remaining" => 11}},
+             "fleet_status" => "running",
+             "fleet_paused_until" => nil,
+             "fleet_pause_reason" => nil
            }
 
     conn = get(build_conn(), "/api/v1/MT-HTTP")
