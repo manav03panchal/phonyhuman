@@ -1,12 +1,12 @@
 ```text
 ╭─ SYMPHONY STATUS
 │ Agents: 0/10
-│ Throughput: 0 tps
-│ Runtime: 0m 0s
-│ Tokens: in 0 | out 0 | cache 0 | total 0
+│ Throughput: 145 tps
+│ Runtime: 12m 34s
+│ Tokens: in 45,230 | out 8,120 | cache 31,500 | total 53,350
+│ Cost: $0.42  (claude-opus-4-6)
 │ Rate Limits: unavailable
 │ Project: https://linear.app/project/project/issues
-│ Dashboard: http://127.0.0.1:4000/
 │ Next refresh: n/a
 ├─ Running
 │
