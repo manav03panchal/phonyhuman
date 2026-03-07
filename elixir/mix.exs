@@ -22,6 +22,8 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.CLI,
           SymphonyElixir.AgentServer.Server,
           SymphonyElixir.AgentServer.DynamicTool,
+          SymphonyElixir.TelemetryCollector,
+          SymphonyElixir.TelemetryCollector.Router,
           SymphonyElixir.HttpServer,
           SymphonyElixir.StatusDashboard,
           SymphonyElixir.LogFile,

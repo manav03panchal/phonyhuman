@@ -28,6 +28,7 @@ defmodule SymphonyElixir.Application do
       {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
       SymphonyElixir.WorkflowStore,
       SymphonyElixir.Orchestrator,
+      SymphonyElixir.TelemetryCollector,
       SymphonyElixir.HttpServer,
       SymphonyElixir.StatusDashboard
     ]
