@@ -159,6 +159,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
                   <col style="width: 8.5rem;" />
                   <col />
                   <col style="width: 10rem;" />
+                  <col style="width: 8rem;" />
+                  <col style="width: 7rem;" />
                 </colgroup>
                 <thead>
                   <tr>
@@ -168,6 +170,8 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     <th>Runtime / turns</th>
                     <th>Agent update</th>
                     <th>Tokens</th>
+                    <th>Code</th>
+                    <th>Tools</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -225,6 +229,33 @@ defmodule SymphonyElixirWeb.DashboardLive do
                         <% end %>
                         <%= if entry.model do %>
                           <span class="muted"><%= entry.model %></span>
+                        <% end %>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="detail-stack numeric">
+                        <%= if entry.lines_changed > 0 do %>
+                          <span><%= format_int(entry.lines_changed) %> lines</span>
+                        <% end %>
+                        <%= if entry.commits_count > 0 or entry.prs_count > 0 do %>
+                          <span class="muted"><%= entry.commits_count %> commits / <%= entry.prs_count %> PRs</span>
+                        <% end %>
+                        <%= if entry.lines_changed == 0 and entry.commits_count == 0 and entry.prs_count == 0 do %>
+                          <span class="muted">--</span>
+                        <% end %>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="detail-stack numeric">
+                        <%= if entry.tool_calls > 0 do %>
+                          <span><%= entry.tool_calls %> calls</span>
+                          <span class="muted">avg <%= entry.tool_avg_duration_ms %>ms</span>
+                        <% end %>
+                        <%= if entry.api_errors > 0 do %>
+                          <span class="muted"><%= entry.api_errors %> errors</span>
+                        <% end %>
+                        <%= if entry.tool_calls == 0 and entry.api_errors == 0 do %>
+                          <span class="muted">--</span>
                         <% end %>
                       </div>
                     </td>

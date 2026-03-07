@@ -208,6 +208,164 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
   end
 
+  describe "OTel fields in agent_totals" do
+    test "includes OTel-derived fields when present" do
+      pid = start_mock(%{
+        running: [],
+        retrying: [],
+        agent_totals: %{
+          input_tokens: 1_000,
+          output_tokens: 200,
+          total_tokens: 1_200,
+          seconds_running: 120,
+          tool_executions: [
+            %{name: "Bash", duration_ms: 500, success: true},
+            %{name: "Read", duration_ms: 100, success: true}
+          ],
+          api_errors: 2,
+          lines_changed: 142,
+          commits_count: 3,
+          prs_count: 1,
+          active_time_seconds: 754
+        },
+        rate_limits: nil
+      })
+
+      payload = Presenter.state_payload(pid, 5_000)
+
+      assert payload.agent_totals.lines_changed == 142
+      assert payload.agent_totals.commits_count == 3
+      assert payload.agent_totals.prs_count == 1
+      assert payload.agent_totals.tool_calls == 2
+      assert payload.agent_totals.tool_avg_duration_ms == 300
+      assert payload.agent_totals.api_errors == 2
+      assert payload.agent_totals.active_time_seconds == 754
+      refute Map.has_key?(payload.agent_totals, :tool_executions)
+    end
+
+    test "defaults OTel fields to 0 when absent" do
+      pid = start_mock(%{
+        running: [],
+        retrying: [],
+        agent_totals: %{
+          input_tokens: 100,
+          output_tokens: 50,
+          total_tokens: 150,
+          seconds_running: 60
+        },
+        rate_limits: nil
+      })
+
+      payload = Presenter.state_payload(pid, 5_000)
+
+      assert payload.agent_totals.lines_changed == 0
+      assert payload.agent_totals.commits_count == 0
+      assert payload.agent_totals.prs_count == 0
+      assert payload.agent_totals.tool_calls == 0
+      assert payload.agent_totals.tool_avg_duration_ms == 0
+      assert payload.agent_totals.api_errors == 0
+      assert payload.agent_totals.active_time_seconds == 0
+    end
+  end
+
+  describe "OTel fields in per-session entries" do
+    test "includes OTel-derived fields in running entry" do
+      pid = start_mock(%{
+        running: [
+          %{
+            issue_id: "issue-otel",
+            identifier: "MT-500",
+            state: "In Progress",
+            session_id: "sess-otel",
+            agent_app_server_pid: nil,
+            agent_input_tokens: 1_000,
+            agent_output_tokens: 200,
+            agent_total_tokens: 1_200,
+            agent_cache_read_tokens: 800,
+            agent_cost_usd: 0.15,
+            model: "claude-opus-4-6",
+            turn_count: 3,
+            started_at: DateTime.utc_now(),
+            last_agent_timestamp: nil,
+            last_agent_message: nil,
+            last_agent_event: nil,
+            runtime_seconds: 120,
+            otel_tool_executions: [
+              %{name: "Bash", duration_ms: 500, success: true},
+              %{name: "Edit", duration_ms: 300, success: true}
+            ],
+            otel_api_errors: 1,
+            otel_lines_changed: 99,
+            otel_commits_count: 4,
+            otel_prs_count: 2,
+            otel_active_time_seconds: 300
+          }
+        ],
+        retrying: [],
+        agent_totals: %{
+          input_tokens: 1_000,
+          output_tokens: 200,
+          total_tokens: 1_200,
+          seconds_running: 0
+        },
+        rate_limits: nil
+      })
+
+      payload = Presenter.state_payload(pid, 5_000)
+      [entry] = payload.running
+
+      assert entry.lines_changed == 99
+      assert entry.commits_count == 4
+      assert entry.prs_count == 2
+      assert entry.tool_calls == 2
+      assert entry.tool_avg_duration_ms == 400
+      assert entry.api_errors == 1
+      assert entry.active_time_seconds == 300
+    end
+
+    test "defaults per-session OTel fields to 0 when absent" do
+      pid = start_mock(%{
+        running: [
+          %{
+            issue_id: "issue-no-otel",
+            identifier: "MT-600",
+            state: "Todo",
+            session_id: nil,
+            agent_app_server_pid: nil,
+            agent_input_tokens: 500,
+            agent_output_tokens: 100,
+            agent_total_tokens: 600,
+            turn_count: 1,
+            started_at: DateTime.utc_now(),
+            last_agent_timestamp: nil,
+            last_agent_message: nil,
+            last_agent_event: nil,
+            runtime_seconds: 30
+          }
+        ],
+        retrying: [],
+        agent_totals: %{
+          input_tokens: 500,
+          output_tokens: 100,
+          total_tokens: 600,
+          seconds_running: 0
+        },
+        rate_limits: nil
+      })
+
+      payload = Presenter.state_payload(pid, 5_000)
+      [entry] = payload.running
+
+      assert entry.lines_changed == 0
+      assert entry.commits_count == 0
+      assert entry.prs_count == 0
+      assert entry.tool_calls == 0
+      assert entry.tool_avg_duration_ms == 0
+      assert entry.api_errors == 0
+      assert entry.active_time_seconds == 0
+    end
+  end
+
   describe "running_entry_payload (via state_payload)" do
     test "includes model and cost_usd in tokens map" do
       pid = start_mock(%{
