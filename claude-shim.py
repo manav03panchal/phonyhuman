@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-claude-shim: A Codex app-server protocol shim that drives Claude Code CLI.
+claude-shim: An agent server protocol shim that drives Claude Code CLI.
 
-Speaks JSON-RPC 2.0 on stdin/stdout so Symphony treats it as a Codex app-server,
+Speaks JSON-RPC 2.0 on stdin/stdout so Symphony treats it as an agent server,
 but internally spawns `claude` CLI using the user's Claude Code Max subscription.
 
 Usage in WORKFLOW.md:
