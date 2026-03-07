@@ -1,8 +1,8 @@
-# phonyhuman
+# phonyhuman 🤪
 
 A fork of [OpenAI's Symphony](https://github.com/openai/symphony) that uses **Claude Code** instead of Codex. Works with your Claude Max subscription — no Anthropic API key needed.
 
-phonyhuman polls your Linear board for issues, spins up isolated workspaces, and dispatches Claude Code agents to implement them autonomously.
+phonyhuman 🤪 polls your Linear board for issues, spins up isolated workspaces, and dispatches Claude Code agents to implement them autonomously.
 
 ## Install
 
@@ -13,30 +13,34 @@ curl -sSL https://raw.githubusercontent.com/manav03panchal/symphony-claude/main/
 ## Quick start
 
 ```bash
-# Generate a config
+# Generate a config + package skills into your project
 phonyhuman init my-project
 
 # Edit my-project.toml with your Linear + repo details, then:
 phonyhuman run my-project.toml
 ```
 
+`phonyhuman init` creates your config **and** copies all agent skills into `.codex/skills/` so your project is self-contained. Skills can be customized per-project — re-running init won't overwrite existing skills.
+
 ## How it works
 
 ```
-Linear (issues) → phonyhuman (orchestrator) → Claude Code (agents)
-                                             ↘ linear-cli (feedback)
+PRD → Claude Code (prd skill) → Linear (issues) → phonyhuman 🤪 → Claude Code (agents)
 ```
 
-1. You create issues in Linear with requirements
-2. phonyhuman polls for new issues every few seconds
-3. For each issue, it clones your repo into an isolated workspace
-4. Claude Code picks up the issue, reads the requirements, writes code, commits, and updates Linear
-5. Repeat — multiple agents run in parallel
+1. **Plan**: Feed a PRD to Claude Code — the `prd` skill decomposes it into Linear issues with acceptance criteria, validation steps, and dependency chains
+2. **Review**: Issues land in Backlog. Move them to Todo when ready
+3. **Execute**: phonyhuman 🤪 picks up Todo issues, dispatches Claude Code agents in isolated workspaces
+4. **Implement**: Agents write code, commit, push branches, open PRs, and move issues to Human Review
+5. **Review**: Humans review PRs, approve (→ Merging) or request changes (→ Rework)
+6. **Land**: Agents squash-merge approved PRs and move issues to Done
+
+Multiple agents run in parallel. Dependencies are respected — blocked issues wait.
 
 ## Commands
 
 ```
-phonyhuman init [name]     Generate a config file from template
+phonyhuman init [name]     Generate config + package skills into .codex/skills/
 phonyhuman run <config>    Run the orchestrator
 phonyhuman doctor          Check all prerequisites
 phonyhuman version         Show version
@@ -52,6 +56,44 @@ phonyhuman help            Usage info
 - **Linear account** with a personal API key
 - **GitHub CLI** (`gh`) — recommended for the PR workflow ([install](https://cli.github.com))
 
+## Skills
+
+phonyhuman 🤪 ships with agent skills that are packaged into your project on `init`:
+
+| Skill | Purpose |
+|---|---|
+| **prd** | Decompose a PRD into Linear issues with dependencies, acceptance criteria, and validation |
+| **sprint-planning** | Reference guide for Scrum Masters — issue structure, sizing, and workflow conventions |
+| **linear** | Raw Linear GraphQL operations (comments, state transitions, attachments) |
+| **commit** | Produce well-formed git commits with conventional types and rationale |
+| **push** | Push branches, create/update PRs with proper titles and descriptions |
+| **pull** | Sync feature branches with origin/main, resolve merge conflicts |
+| **land** | Squash-merge approved PRs after conflict/CI checks |
+
+### PRD → Issues workflow
+
+The `prd` skill handles the full planning pipeline:
+
+1. Reads a PRD (file, URL, or pasted text)
+2. Scans the target repo for tech stack, patterns, and file structure
+3. Finds or **creates** the Linear project if it doesn't exist
+4. Verifies and **creates** required workflow states (Human Review, Merging, Rework) if missing
+5. Decomposes the PRD into agent-sized issues (1–5 files each, single responsibility)
+6. Creates all issues in **Backlog** with `blockedBy` dependency chains
+7. Summarizes parallel tracks, critical path, and estimated points
+
+### Agent execution workflow
+
+When phonyhuman 🤪 dispatches an agent, it uses the `commit`, `push`, `pull`, `land`, and `linear` skills through the workflow prompt. Each agent:
+
+1. Picks up an issue from Todo, moves to In Progress
+2. Creates a Codex Workpad comment on the issue
+3. Plans, implements, validates against acceptance criteria
+4. Pushes a branch, opens a PR with the `symphony` label
+5. Runs a PR feedback sweep (addresses review comments)
+6. Moves to Human Review when all checks pass
+7. After approval, squash-merges via the `land` skill
+
 ## Configuration
 
 Edit the generated `.toml` file:
@@ -63,6 +105,7 @@ project_slug = "my-project-abc123"
 
 [repo]
 url = "git@github.com:your-org/your-repo.git"
+local_repo = "/path/to/local/checkout"  # enables fast worktree mode
 
 [agent]
 max_concurrent = 5
@@ -86,10 +129,13 @@ root = "~/symphony-workspaces"
 ```toml
 [linear]
 # Customize which states phonyhuman watches
-active_states = ["Todo", "In Progress"]
+active_states = ["Todo", "In Progress", "Merging", "Rework"]
 terminal_states = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
 
 [repo]
+# Use worktree mode (default when local_repo is set) for fast workspace creation
+local_repo = "/path/to/your/repo"
+
 # Custom workspace hooks (shell commands)
 after_create = 'git clone --depth 1 "$SOURCE_REPO_URL" . && npm install'
 before_run = "git pull origin main"
@@ -124,56 +170,44 @@ https://linear.app/myteam/project/my-project-abc123
                                    ^^^^^^^^^^^^^^^^^ this
 ```
 
-## What agents do
+### Required Linear workflow states
 
-Each agent follows this workflow on every issue:
+Your Linear team must have these states configured:
 
-1. **Fetches** the issue details from Linear
-2. **Moves** it to "In Progress"
-3. **Creates a Workpad** comment on the issue to track progress
-4. **Implements** the requirements — reads code, writes changes, commits
-5. **Pushes** a branch, opens a PR, and attaches it to the Linear issue
-6. **Updates the Workpad** with progress, test results, notes
-7. **Moves to "Human Review"** when all acceptance criteria and PR checks pass
-8. After human approval, **lands the PR** via squash-merge
+| State | Type | Purpose |
+|---|---|---|
+| **Backlog** | Backlog | Issues not yet ready for agents |
+| **Todo** | Unstarted | Ready for agent pickup |
+| **In Progress** | Started | Agent is actively working |
+| **Human Review** | Started | PR ready for human review |
+| **Merging** | Started | Human approved; agent landing PR |
+| **Rework** | Started | Changes requested; agent re-implements |
+| **Done** | Completed | PR merged, issue complete |
 
-### PR workflow and Linear states
+**Human Review**, **Merging**, and **Rework** must be named exactly as shown — agents use exact string matching. The `prd` skill can create these automatically when setting up a new project.
 
-Agents use a full branch-based PR workflow with these Linear states:
+## PR workflow and Linear states
 
 ```
-Todo → In Progress → Human Review → Merging → Done
-                          ↑              |
-                          └── Rework ←───┘
+Backlog → Todo → In Progress → Human Review → Merging → Done
+                                    ↑              |
+                                    └── Rework ←───┘
 ```
 
 | State | What happens |
 |---|---|
-| **Todo** | Agent picks up issue, moves to In Progress |
+| **Backlog** | Agent ignores. Issues await human review / sprint planning |
+| **Todo** | Agent picks up issue within seconds, moves to In Progress |
 | **In Progress** | Agent implements, creates branch, opens PR, runs tests |
 | **Human Review** | PR is ready; agent waits for human approval |
-| **Rework** | Reviewer requested changes; agent resets and re-implements |
+| **Rework** | Reviewer requested changes; agent closes PR, starts fresh |
 | **Merging** | Human approved; agent monitors CI and squash-merges |
 | **Done** | PR merged, issue complete |
-
-Agents ship with skills for each phase: `commit`, `push`, `pull`, and `land`. These are installed at `~/.phonyhuman/skills/` and referenced in the generated workflow.
-
-Agents interact with Linear using `linear-cli.py`, which supports:
-
-```bash
-linear-cli.py get-issue HUM-5          # fetch issue details
-linear-cli.py comment HUM-5 "message"  # post a comment
-linear-cli.py edit-comment <id> "body"  # update a comment
-linear-cli.py get-comments HUM-5       # list comments
-linear-cli.py set-state HUM-5 "Done"   # move issue state
-linear-cli.py attach-url HUM-5 <url>   # attach a link
-linear-cli.py graphql <query>          # raw GraphQL
-```
 
 ## Architecture
 
 ```
-phonyhuman               TOML config → generates WORKFLOW.md → launches Symphony
+phonyhuman 🤪            TOML config → generates WORKFLOW.md → launches Symphony
   └─ Symphony (Elixir)   Polls Linear, manages workspaces, dispatches agents
        └─ claude-shim.py Speaks Codex JSON-RPC protocol, drives Claude Code CLI
             └─ claude     Your Claude Max subscription does the actual work
@@ -186,6 +220,8 @@ phonyhuman               TOML config → generates WORKFLOW.md → launches Symp
 | `bin/phonyhuman` | CLI — reads TOML, validates, builds, runs |
 | `claude-shim.py` | Protocol adapter (Codex JSON-RPC → Claude Code CLI) |
 | `linear-cli.py` | CLI for agents to read/write Linear issues |
+| `skills/` | Agent skills (packaged into projects on init) |
+| `templates/default-prompt.md` | Workflow prompt template for agents |
 | `example.toml` | Documented config template |
 | `elixir/` | Symphony orchestrator (Elixir/OTP) |
 | `install.sh` | Curl-installable installer |
