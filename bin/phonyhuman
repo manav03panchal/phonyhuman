@@ -3,7 +3,7 @@
 # phonyhuman — CLI for Symphony + Claude Code
 #
 # Usage:
-#   phonyhuman init [name]     Generate a config from template
+#   phonyhuman init [name]     Generate config + package skills
 #   phonyhuman run <config>    Run the orchestrator
 #   phonyhuman doctor          Check all prerequisites
 #   phonyhuman version         Show version
@@ -211,7 +211,7 @@ cmd_help() {
     echo "    phonyhuman <command> [arguments]"
     echo ""
     echo "  $(bold "COMMANDS")"
-    echo "    init [name]        Generate a config file from template"
+    echo "    init [name]        Generate config + package skills into .codex/skills/"
     echo "    run <config>       Run the orchestrator"
     echo "    doctor             Check all prerequisites"
     echo "    version            Show version"
@@ -418,9 +418,34 @@ TOML
         cp "$template" "$target"
     fi
 
+    # ── Copy skills into .codex/skills/ ──────────────────────────────
+    local skills_dest=".codex/skills"
+    if [[ -d "$SKILLS_DIR" ]]; then
+        mkdir -p "$skills_dest"
+        local copied_skills=()
+        for skill_dir in "$SKILLS_DIR"/*/; do
+            [[ -d "$skill_dir" ]] || continue
+            local skill_name
+            skill_name=$(basename "$skill_dir")
+            if [[ -d "$skills_dest/$skill_name" ]]; then
+                continue  # Don't overwrite existing customized skills
+            fi
+            cp -r "$skill_dir" "$skills_dest/$skill_name"
+            copied_skills+=("$skill_name")
+        done
+    fi
+
     banner
     green "  Created $target"; echo ""
-    echo ""
+
+    if [[ ${#copied_skills[@]} -gt 0 ]]; then
+        green "  Packaged skills into $skills_dest/"; echo ""
+        for s in "${copied_skills[@]}"; do
+            dim "    $s"; echo ""
+        done
+        echo ""
+    fi
+
     dim "  Edit it with your Linear + repo details, then run:"; echo ""
     echo "    phonyhuman run $target"
     echo ""
@@ -556,12 +581,25 @@ if port:
 linear_cli_path = os.path.join(os.path.dirname(shim_path), "linear-cli.py")
 
 # Resolve skills directory
+# Prefer project-local skills (.codex/skills/) when local_repo is set,
+# so agents in each workspace find skills relative to their working directory.
+local_repo_path = repo.get("local_repo", "")
+local_skills = ""
+if local_repo_path:
+    candidate = os.path.join(os.path.expanduser(local_repo_path), ".codex", "skills")
+    if os.path.isdir(candidate):
+        local_skills = ".codex/skills"  # relative — resolved per workspace
+
 skills_dir = os.environ.get("PHONYHUMAN_SKILLS_DIR", "")
 if not skills_dir:
     bin_dir = os.path.dirname(shim_path)
     parent_dir = os.path.dirname(bin_dir)
     if os.path.isdir(os.path.join(parent_dir, "skills")):
         skills_dir = os.path.join(parent_dir, "skills")
+
+# Project-local skills take priority (relative path works in each worktree/clone)
+if local_skills:
+    skills_dir = local_skills
 
 custom_prompt = prompt_cfg.get("template", "")
 if not custom_prompt:
