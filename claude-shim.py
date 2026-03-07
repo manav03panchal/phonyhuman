@@ -232,6 +232,16 @@ class ClaudeRunner:
         # Remove CLAUDECODE to avoid "nested session" detection.
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
+        # Inject OpenTelemetry environment variables unless explicitly disabled.
+        if os.environ.get("SYMPHONY_OTEL_DISABLED") != "1":
+            otel_port = os.environ.get("SYMPHONY_OTEL_PORT", "4317")
+            env["CLAUDE_CODE_ENABLE_TELEMETRY"] = "1"
+            env["OTEL_METRICS_EXPORTER"] = "otlp"
+            env["OTEL_LOGS_EXPORTER"] = "otlp"
+            env["OTEL_EXPORTER_OTLP_ENDPOINT"] = f"http://127.0.0.1:{otel_port}"
+            env["OTEL_METRIC_EXPORT_INTERVAL"] = "5000"
+            env["OTEL_LOGS_EXPORT_INTERVAL"] = "2000"
+
         log(f"Spawning Claude in {self.cwd}")
         try:
             self.proc = subprocess.Popen(
