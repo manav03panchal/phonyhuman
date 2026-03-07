@@ -69,7 +69,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :session_started,
          session_id: "thread-live-turn-live",
@@ -79,7 +79,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{method: "some-event"},
@@ -155,7 +155,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :session_started,
          session_id: "thread-usage-turn-usage",
@@ -165,7 +165,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{
@@ -250,7 +250,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :turn_completed,
          payload: %{
@@ -327,7 +327,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{
@@ -351,7 +351,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{
@@ -445,7 +445,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{
@@ -519,7 +519,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{
@@ -611,7 +611,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         ] do
       send(
         pid,
-        {:codex_worker_update, issue_id,
+        {:agent_worker_update, issue_id,
          %{
            event: :notification,
            payload: %{
@@ -681,7 +681,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     send(
       pid,
-      {:codex_worker_update, issue_id,
+      {:agent_worker_update, issue_id,
        %{
          event: :notification,
          payload: %{
@@ -898,7 +898,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   test "orchestrator restarts stalled workers with retry backoff" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      codex_stall_timeout_ms: 1_000
+      agent_stall_timeout_ms: 1_000
     )
 
     issue_id = "issue-stall"

@@ -8,7 +8,7 @@ defmodule SymphonyElixir.CoreTest do
       poll_interval_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
-      codex_command: nil
+      agent_command: nil
     )
 
     assert Config.poll_interval_ms() == 30_000
@@ -41,31 +41,31 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_project_slug: "project",
-      codex_command: ""
+      agent_command: ""
     )
 
     assert :ok = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_command: "/bin/sh app-server")
+    write_workflow_file!(Workflow.workflow_file_path(), agent_command: "/bin/sh app-server")
     assert :ok = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: "definitely-not-valid")
+    write_workflow_file!(Workflow.workflow_file_path(), agent_approval_policy: "definitely-not-valid")
     assert :ok = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: "unsafe-ish")
+    write_workflow_file!(Workflow.workflow_file_path(), agent_thread_sandbox: "unsafe-ish")
     assert :ok = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
-      codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: ["relative/path"]}
+      agent_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: ["relative/path"]}
     )
 
     assert :ok = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_approval_policy: 123)
-    assert {:error, {:invalid_codex_approval_policy, 123}} = Config.validate!()
+    write_workflow_file!(Workflow.workflow_file_path(), agent_approval_policy: 123)
+    assert {:error, {:invalid_agent_approval_policy, 123}} = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), codex_thread_sandbox: 123)
-    assert {:error, {:invalid_codex_thread_sandbox, 123}} = Config.validate!()
+    write_workflow_file!(Workflow.workflow_file_path(), agent_thread_sandbox: 123)
+    assert {:error, {:invalid_agent_thread_sandbox, 123}} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: 123)
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
@@ -108,7 +108,7 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
       tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
+      agent_command: "/bin/sh app-server"
     )
 
     assert Config.linear_api_token() == env_api_key
@@ -126,7 +126,7 @@ defmodule SymphonyElixir.CoreTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_assignee: nil,
       tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
+      agent_command: "/bin/sh app-server"
     )
 
     assert Config.linear_assignee() == env_assignee
@@ -828,7 +828,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server"
+        agent_command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -913,7 +913,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server"
+        agent_command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -935,7 +935,7 @@ defmodule SymphonyElixir.CoreTest do
                  issue_state_fetcher: fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
                )
 
-      assert_receive {:codex_worker_update, "issue-live-updates",
+      assert_receive {:agent_worker_update, "issue-live-updates",
                       %{
                         event: :session_started,
                         timestamp: %DateTime{},
@@ -1009,7 +1009,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server",
+        agent_command: "#{codex_binary} app-server",
         max_turns: 3
       )
 
@@ -1139,7 +1139,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        codex_command: "#{codex_binary} app-server",
+        agent_command: "#{codex_binary} app-server",
         max_turns: 2
       )
 
@@ -1237,7 +1237,7 @@ defmodule SymphonyElixir.CoreTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server"
+        agent_command: "#{codex_binary} app-server"
       )
 
       issue = %Issue{
@@ -1380,7 +1380,7 @@ defmodule SymphonyElixir.CoreTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} --model gpt-5.3-codex app-server"
+        agent_command: "#{codex_binary} --model gpt-5.3-codex app-server"
       )
 
       issue = %Issue{
@@ -1466,10 +1466,10 @@ defmodule SymphonyElixir.CoreTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} app-server",
-        codex_approval_policy: "on-request",
-        codex_thread_sandbox: "workspace-write",
-        codex_turn_sandbox_policy: %{
+        agent_command: "#{codex_binary} app-server",
+        agent_approval_policy: "on-request",
+        agent_thread_sandbox: "workspace-write",
+        agent_turn_sandbox_policy: %{
           type: "workspaceWrite",
           writableRoots: [Path.expand(workspace), Path.join(Path.expand(workspace_root), ".cache")]
         }
