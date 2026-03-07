@@ -269,7 +269,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     refute issue.assigned_to_worker
   end
 
-  test "linear client normalizes blockers from inverse relations" do
+  test "linear client normalizes blockers from relations" do
     raw_issue = %{
       "id" => "issue-1",
       "identifier" => "MT-1",
@@ -283,11 +283,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
         "id" => "user-1"
       },
       "labels" => %{"nodes" => [%{"name" => "Backend"}]},
-      "inverseRelations" => %{
+      "relations" => %{
         "nodes" => [
           %{
             "type" => "blocks",
-            "issue" => %{
+            "relatedIssue" => %{
               "id" => "issue-2",
               "identifier" => "MT-2",
               "state" => %{"name" => "In Progress"}
@@ -295,7 +295,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
           },
           %{
             "type" => "relatesTo",
-            "issue" => %{
+            "relatedIssue" => %{
               "id" => "issue-3",
               "identifier" => "MT-3",
               "state" => %{"name" => "Done"}
@@ -455,6 +455,26 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     }
 
     refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+  end
+
+  test "todo issue with no blockers is dispatch-eligible" do
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issue = %Issue{
+      id: "root-1",
+      identifier: "MT-1008",
+      title: "Root issue with no blockers",
+      state: "Todo",
+      blocked_by: []
+    }
+
+    assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
   test "todo issue with terminal blockers remains dispatch-eligible" do
