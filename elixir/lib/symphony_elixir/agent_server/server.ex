@@ -1,10 +1,10 @@
-defmodule SymphonyElixir.Codex.AppServer do
+defmodule SymphonyElixir.AgentServer.Server do
   @moduledoc """
-  Minimal client for the Codex app-server JSON-RPC 2.0 stream over stdio.
+  Minimal client for the agent server JSON-RPC 2.0 stream over stdio.
   """
 
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config}
+  alias SymphonyElixir.{AgentServer.DynamicTool, Config}
 
   @initialize_id 1
   @thread_start_id 2
