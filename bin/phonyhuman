@@ -14,7 +14,7 @@ set -euo pipefail
 
 VERSION="dev"
 PHONYHUMAN_HOME="${PHONYHUMAN_HOME:-$HOME/.phonyhuman}"
-GITHUB_REPO="manav03panchal/symphony-claude"
+GITHUB_REPO="manav03panchal/phonyhuman"
 
 # ── Path resolution ──────────────────────────────────────────────────
 # When installed: PHONYHUMAN_HOME/bin/phonyhuman → PHONYHUMAN_HOME

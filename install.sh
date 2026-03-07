@@ -3,7 +3,7 @@
 # phonyhuman installer
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/manav03panchal/symphony-claude/main/install.sh | sh
+#   curl -sSL https://raw.githubusercontent.com/manav03panchal/phonyhuman/main/install.sh | sh
 #
 # Environment:
 #   PHONYHUMAN_VERSION   Pin to a specific version (e.g. "0.1.0")
@@ -12,7 +12,7 @@
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-GITHUB_REPO="manav03panchal/symphony-claude"
+GITHUB_REPO="manav03panchal/phonyhuman"
 INSTALL_DIR="${PHONYHUMAN_HOME:-$HOME/.phonyhuman}"
 
 # ── Color helpers ────────────────────────────────────────────────────

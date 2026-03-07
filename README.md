@@ -7,7 +7,7 @@ phonyhuman 🤪 polls your Linear board for issues, spins up isolated workspaces
 ## Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/manav03panchal/symphony-claude/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/manav03panchal/phonyhuman/main/install.sh | sh
 ```
 
 ## Quick start
