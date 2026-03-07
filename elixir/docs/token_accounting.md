@@ -1,304 +1,263 @@
-# Codex Token Accounting
+# Token Accounting
 
-This document explains how Codex reports token usage through the app-server protocol and how Symphony should account for it.
+This document explains how Claude Code reports token usage through its `stream-json` output format and how Symphony accounts for it.
 
-It is based on the current Codex source in `codex-rs`, especially:
+It is based on the current implementation in:
 
-- `app-server/README.md`
-- `protocol/src/protocol.rs`
-- `app-server/src/bespoke_event_handling.rs`
-- `app-server-protocol/src/protocol/v2.rs`
-- `exec/src/event_processor_with_jsonl_output.rs`
-- `state/src/extract.rs`
+- `claude-shim.py` -- the shim that wraps the Claude CLI
+- `elixir/lib/symphony_elixir/codex/app_server.ex` -- event parsing and usage extraction
+- `elixir/lib/symphony_elixir/orchestrator.ex` -- token delta computation and accumulation
 
 ## Short Version
 
-- `last_token_usage` means "the latest increment".
-- `total_token_usage` means "the cumulative total so far".
-- `thread/tokenUsage/updated` is the live streaming notification for token usage.
-- `turn/completed` carries final turn state, and turn-level usage is exposed separately from the live thread token stream.
-- Generic `usage` fields are event-specific. Do not assume every `usage` payload is a cumulative thread total.
+- Claude Code emits a `stream-json` event stream. The final `result` event carries a flat `usage` object with per-turn cumulative token counts.
+- There is no `total` vs `last` distinction. Each result event gives one authoritative usage snapshot for the turn.
+- The shim forwards Claude Code events as notifications. The orchestrator extracts usage and accumulates it across turns.
 
-## Primary Source Semantics
+## Claude Code Stream-JSON Format
 
-Codex defines `TokenUsageInfo` like this:
+The shim invokes the Claude CLI with `--output-format stream-json`. This produces one JSON object per line on stdout. The key event types are:
 
-```rust
-pub struct TokenUsageInfo {
-    pub total_token_usage: TokenUsage,
-    pub last_token_usage: TokenUsage,
-    pub model_context_window: Option<i64>,
+| Event type   | Purpose                                    |
+| ------------ | ------------------------------------------ |
+| `assistant`  | Streamed assistant message content         |
+| `result`     | Final turn result with usage and metadata  |
+
+### The `result` Event
+
+The `result` event is emitted once at the end of a turn. It is the authoritative source for token usage and turn metadata.
+
+Example:
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "cost_usd": 0.012,
+  "duration_ms": 8340,
+  "num_turns": 1,
+  "is_error": false,
+  "result": "I've updated the configuration file as requested.",
+  "session_id": "abc123-def456",
+  "model": "claude-sonnet-4-20250514",
+  "usage": {
+    "input_tokens": 2150,
+    "output_tokens": 483,
+    "cache_read_input_tokens": 1024,
+    "cache_creation_input_tokens": 512
+  }
 }
 ```
 
-The important behavior is in `append_last_usage`:
+### Usage Fields
 
-```rust
-pub fn append_last_usage(&mut self, last: &TokenUsage) {
-    self.total_token_usage.add_assign(last);
-    self.last_token_usage = last.clone();
+The `usage` object is flat with these fields:
+
+| Field                          | Type    | Description                                          |
+| ------------------------------ | ------- | ---------------------------------------------------- |
+| `input_tokens`                 | integer | Total input tokens consumed during the turn          |
+| `output_tokens`                | integer | Total output tokens generated during the turn        |
+| `cache_read_input_tokens`      | integer | Input tokens served from prompt cache                |
+| `cache_creation_input_tokens`  | integer | Input tokens written to prompt cache                 |
+
+These are per-turn cumulative values. There is no separate "last" or "delta" field -- the usage object is the complete accounting for the turn.
+
+### Additional Metadata Fields
+
+The `result` event carries metadata alongside usage:
+
+| Field         | Type    | Description                                      |
+| ------------- | ------- | ------------------------------------------------ |
+| `cost_usd`    | float   | Estimated cost in USD for the turn               |
+| `duration_ms` | integer | Wall-clock duration of the turn in milliseconds  |
+| `num_turns`   | integer | Number of agentic turns within this invocation   |
+| `model`       | string  | Model identifier used for the turn               |
+
+## How The Shim Forwards Events
+
+The shim (`claude-shim.py`) wraps the Claude CLI process and bridges its output into the JSON-RPC notification stream that `app_server.ex` consumes.
+
+### Event Forwarding
+
+1. The shim spawns `claude -p <prompt> --output-format stream-json --dangerously-skip-permissions --verbose`.
+2. It reads stdout line-by-line, parsing each line as JSON.
+3. Every parsed event is forwarded as a notification:
+
+   ```json
+   {
+     "method": "item/message",
+     "params": {
+       "event": {
+         "type": "claude_event",
+         "event": { "...raw Claude Code event..." }
+       }
+     }
+   }
+   ```
+
+4. The final `result` event (containing `usage`) is captured and also forwarded through this same path.
+
+### Turn Completion
+
+When the Claude process exits successfully, the shim sends a `turn/completed` notification:
+
+```json
+{
+  "method": "turn/completed",
+  "params": {
+    "turnId": "...",
+    "threadId": "..."
+  }
 }
 ```
 
-That gives the core semantics:
+The `turn/completed` notification signals the end of the turn. Token usage arrives via the `result` event forwarded as an `item/message` notification.
 
-- `last_token_usage`: the newest chunk of usage that was just added
-- `total_token_usage`: the accumulated total after adding that chunk
+## How The App Server Processes Events
 
-This is the most important accounting rule in the Codex source.
+`app_server.ex` receives the JSON-RPC stream from the shim and routes events:
 
-## Event Types
+1. **Notification parsing**: Each incoming JSON line is decoded. The `method` field determines routing.
+2. **Usage extraction**: For every payload, `maybe_set_usage/2` checks for a `usage` key. If found and it is a map, it is attached to the event metadata:
 
-### `codex/event/token_count`
+   ```elixir
+   defp maybe_set_usage(metadata, payload) when is_map(payload) do
+     usage = Map.get(payload, "usage") || Map.get(payload, :usage)
+     if is_map(usage), do: Map.put(metadata, :usage, usage), else: metadata
+   end
+   ```
 
-Codex core emits token count events containing `TokenUsageInfo`.
+3. **Event emission**: The event is emitted to the orchestrator as a map containing `:event`, `:payload`, `:raw`, `:timestamp`, and optionally `:usage`.
 
-These events can carry:
+This means usage data flows through `item/message` events (which carry the Claude Code result) and is available on any event whose payload contains a `usage` map.
 
-- `info.total_token_usage`
-- `info.last_token_usage`
-- `info.model_context_window`
+## How The Orchestrator Accumulates Tokens
 
-Symphony sees these events wrapped inside the app-server message stream.
+The orchestrator (`orchestrator.ex`) maintains per-entry and global token totals. It processes each update through a delta-based accumulation pipeline.
 
-Meaning:
+### State Structure
 
-- `total_token_usage` is an absolute cumulative snapshot
-- `last_token_usage` is the delta that produced that snapshot
+Global totals are tracked in `state.codex_totals`:
 
-### `thread/tokenUsage/updated`
-
-The app-server converts token count events into a dedicated thread-scoped notification:
-
-```rust
-let notification = ThreadTokenUsageUpdatedNotification {
-    thread_id: conversation_id.to_string(),
-    turn_id,
-    token_usage,
-};
-```
-
-`ThreadTokenUsage` is defined as:
-
-```rust
-pub struct ThreadTokenUsage {
-    pub total: TokenUsageBreakdown,
-    pub last: TokenUsageBreakdown,
-    pub model_context_window: Option<i64>,
+```elixir
+%{
+  input_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  seconds_running: 0
 }
 ```
 
-And it is populated directly from `TokenUsageInfo`:
+Per-entry (per-issue) fields track both accumulated tokens and the last reported values used for delta computation:
 
-```rust
-impl From<CoreTokenUsageInfo> for ThreadTokenUsage {
-    fn from(value: CoreTokenUsageInfo) -> Self {
-        Self {
-            total: value.total_token_usage.into(),
-            last: value.last_token_usage.into(),
-            model_context_window: value.model_context_window,
-        }
-    }
-}
+- `codex_input_tokens`, `codex_output_tokens`, `codex_total_tokens` -- accumulated totals
+- `codex_last_reported_input_tokens`, `codex_last_reported_output_tokens`, `codex_last_reported_total_tokens` -- high-water marks from the source
+- `turn_count` -- number of completed turns for the entry
+
+### Usage Extraction
+
+`extract_token_usage/1` searches for token data across multiple payload paths:
+
+1. Direct `:usage` key on the update
+2. Nested within `:payload`
+3. The update map itself as a fallback
+
+Within each candidate, it tries two extraction strategies in order:
+
+1. **Absolute token usage** (`absolute_token_usage_from_payload/1`): Looks for deeply nested paths like `params.tokenUsage.total` -- used when the source provides cumulative thread totals.
+2. **Turn-completed usage** (`turn_completed_usage_from_payload/1`): Extracts `usage` from events with method `turn/completed`.
+
+The extracted map is validated by `integer_token_map?/1`, which accepts multiple naming conventions (`input_tokens`, `prompt_tokens`, `inputTokens`, etc.).
+
+### Delta Computation
+
+`extract_token_delta/2` computes the delta between the current update's usage and the previously reported values:
+
+```
+delta = max(0, next_reported_total - previous_reported_total)
 ```
 
-Meaning:
+For each token dimension (input, output, total):
 
-- `thread/tokenUsage/updated` is the canonical live notification for token usage
-- `tokenUsage.total` is an absolute thread total
-- `tokenUsage.last` is the latest increment that produced that total
+1. Read the new reported value from the extracted usage.
+2. Read the previous high-water mark from the running entry (`codex_last_reported_*_tokens`).
+3. If the new value is greater than or equal to the previous, the delta is the difference.
+4. Otherwise the delta is 0 (protects against decreasing values).
 
-The app-server README is explicit: token usage streams separately via `thread/tokenUsage/updated`.
+### Accumulation
 
-### `turn/completed`
+`integrate_codex_update/2` applies the computed delta:
 
-The app-server README says `turn/completed` carries final turn state and token usage.
-
-There are two important details:
-
-1. The app-server protocol `turn/completed` notification contains a final `turn` object.
-2. The `exec` event processor also emits a turn-completed event that includes a `usage` struct.
-
-In the `exec` event processor, the turn-completed usage is built from the most recent captured `total_token_usage`:
-
-```rust
-if let Some(info) = &ev.info {
-    self.last_total_token_usage = Some(info.total_token_usage.clone());
-}
+```elixir
+codex_input_tokens:  existing_input  + delta.input_tokens
+codex_output_tokens: existing_output + delta.output_tokens
+codex_total_tokens:  existing_total  + delta.total_tokens
 ```
 
-Then on turn completion:
+The high-water marks are updated to the maximum of the old and new reported values. The delta is also applied to the global `codex_totals` via `apply_codex_token_delta/2`, which floors each total at zero.
 
-```rust
-let usage = if let Some(u) = &self.last_total_token_usage {
-    Usage {
-        input_tokens: u.input_tokens,
-        cached_input_tokens: u.cached_input_tokens,
-        output_tokens: u.output_tokens,
-    }
-}
-```
+## Accounting Strategy
 
-Important consequence:
+### Core Rule
 
-- a turn-completed `usage` payload is not the same schema as `ThreadTokenUsage`
-- it should be interpreted in the context of the specific event that emitted it
-- it must not be blindly mixed with `thread/tokenUsage/updated` accounting
+**The `result` event's `usage` field is the authoritative per-turn total.** Claude Code gives one cumulative usage snapshot per turn -- there is no `total` vs `last` distinction to reconcile.
 
-### Generic `usage`
+### Why Delta Computation Still Matters
 
-Codex uses the word `usage` in multiple places.
+Even though each turn provides a single cumulative usage value, the orchestrator uses delta computation because:
 
-That does not mean all `usage` maps have the same semantics.
+1. **Multiple events per turn**: Claude Code events stream throughout the turn. The orchestrator may see intermediate usage reports before the final result.
+2. **High-water mark protection**: If an earlier event reports a higher value than a later one (due to event ordering), the delta is clamped to zero rather than going negative.
+3. **Cross-turn accumulation**: Per-entry totals span multiple turns. Each turn's usage is added as a delta to the running total.
 
-Examples:
+### What Symphony Tracks
 
-- `thread/tokenUsage/updated.tokenUsage.total`: absolute cumulative thread total
-- `thread/tokenUsage/updated.tokenUsage.last`: latest delta
-- turn-completed `usage`: event-specific completion usage payload
+| Metric            | Scope     | Source                                    |
+| ----------------- | --------- | ----------------------------------------- |
+| `input_tokens`    | Per-entry | Accumulated from `result.usage`           |
+| `output_tokens`   | Per-entry | Accumulated from `result.usage`           |
+| `total_tokens`    | Per-entry | Accumulated from `result.usage`           |
+| `turn_count`      | Per-entry | Incremented on each turn completion       |
+| `seconds_running` | Global    | Accumulated wall-clock time               |
 
-Rule:
+### What Symphony Does Not Track (Yet)
 
-- never classify a `usage` map by name alone
-- classify it by event type and payload path
+The following fields are available in the Claude Code result event but are not currently extracted by the orchestrator:
 
-## What The Metrics Mean
+- `cost_usd` -- per-turn cost estimate
+- `model` -- model identifier
+- `duration_ms` -- per-turn wall-clock duration
+- `num_turns` -- agentic sub-turns within a single invocation
+- `cache_read_input_tokens` -- prompt cache reads
+- `cache_creation_input_tokens` -- prompt cache writes
 
-### Absolute totals
+These fields are forwarded through the event stream and can be extracted if needed.
 
-These are safe high-water-mark style counters:
+## Implementation Reference
 
-- `info.total_token_usage`
-- `tokenUsage.total` on `thread/tokenUsage/updated`
+### File Map
 
-Use these when you want:
+| Component      | File                                              | Key Functions                                                    |
+| -------------- | ------------------------------------------------- | ---------------------------------------------------------------- |
+| Shim           | `claude-shim.py`                                  | `ClaudeRunner.run()`, `run_turn()`                               |
+| App Server     | `elixir/lib/symphony_elixir/codex/app_server.ex`  | `handle_incoming/6`, `maybe_set_usage/2`, `emit_turn_event/6`    |
+| Orchestrator   | `elixir/lib/symphony_elixir/orchestrator.ex`       | `integrate_codex_update/2`, `extract_token_delta/2`, `extract_token_usage/1` |
 
-- live dashboard totals
-- stable per-thread accumulation
-- recovery after missed intermediate events
+### Naming Convention Support
 
-### Deltas
+The orchestrator accepts token fields in multiple naming styles for compatibility:
 
-These are incremental additions:
+- Snake case: `input_tokens`, `output_tokens`, `total_tokens`
+- API style: `prompt_tokens`, `completion_tokens`
+- Camel case: `inputTokens`, `outputTokens`, `totalTokens`
 
-- `info.last_token_usage`
-- `tokenUsage.last` on `thread/tokenUsage/updated`
-
-Use these only when:
-
-- no absolute total is available
-- you are explicitly handling additive updates
-
-### Context window
-
-`model_context_window` is not spend. It is the model's context limit.
-
-Codex also has logic that can "fill to context window", which sets:
-
-- `total_token_usage.total_tokens = context_window`
-- `last_token_usage.total_tokens = delta`
-
-So `total_tokens` can reflect context-window normalization behavior, not just a raw upstream token report.
-
-For Symphony, `model_context_window` should be displayed or logged separately from spend.
-
-## Recommended Accounting Strategy For Symphony
-
-Track usage per active Codex thread.
-
-For each thread, keep:
-
-- `absolute_total`: latest accepted absolute total snapshot
-- `accumulated_total`: the total you expose in UI/API
-- `last_seen_turn_id`
-
-### Preferred source order
-
-When a token-related event arrives, use this precedence:
-
-1. `thread/tokenUsage/updated.tokenUsage.total`
-2. `TokenCountEvent.info.total_token_usage`
-
-Ignore these for accounting:
-
-- `thread/tokenUsage/updated.tokenUsage.last`
-- `TokenCountEvent.info.last_token_usage`
-- generic `usage` maps
-- turn-completed `usage`
-
-Do not treat generic `params.usage` as equivalent to a cumulative thread total unless the event type makes that meaning explicit.
-
-### Algorithm
-
-#### If an absolute total is present
-
-- Treat it as a thread-level snapshot.
-- If it is greater than or equal to the stored `absolute_total`, replace the stored absolute total.
-- Set exposed totals from that absolute snapshot.
-- Do not add the corresponding delta again.
-
-#### If no absolute total is present
-
-- Ignore the event for accounting.
-- Keep the last accepted absolute high-water mark unchanged.
-
-### Why this matters
-
-If you misclassify a per-turn `usage` payload as an absolute thread total, later turns can appear to stall because a smaller per-turn number is compared against a larger cumulative baseline.
-
-## What Symphony Should And Should Not Do
-
-### Do
-
-- Prefer `thread/tokenUsage/updated` for live reporting.
-- Treat `tokenUsage.total` as authoritative for thread totals.
-- Key accounting by `thread_id`, not just issue id.
-- Expect one thread to span multiple turns when Symphony reuses a live Codex thread.
-
-### Do not
-
-- Do not treat every `usage` map as absolute.
-- Do not count `tokenUsage.last` or `last_token_usage` into dashboard totals.
-- Do not add turn-completed `usage` on top of already-counted live thread totals unless you can prove it represents missing spend.
-- Do not reset accounting just because a new turn starts on the same thread.
-
-## Practical Interpretation For Symphony Logs
-
-When reading raw app-server events:
-
-- `codex/event/token_count`
-  - useful if you are inspecting nested `info.total_token_usage`
-- `thread/tokenUsage/updated`
-  - best source for live dashboard and API totals
-- `turn/completed`
-  - best used as end-of-turn state, not as an unconditional additive token event
-
-## Why `total_token_usage` Is The Durable Choice
-
-Codex itself consistently prefers cumulative totals when it needs durable state:
-
-- the state extractor stores `info.total_token_usage.total_tokens`
-- the exec event processor caches the last `total_token_usage` and uses that on turn completion
-
-That is a strong signal for Symphony:
-
-- use absolute totals as the main accounting surface
-- ignore last/delta values for totals
-
-## Recommended Symphony Documentation Contract
-
-If Symphony documents token reporting externally, the contract should be:
-
-- Live token totals come from Codex thread-scoped cumulative usage.
-- Incremental usage may also be emitted, but Symphony does not use it for totals.
-- Turn-completed usage is event-specific and should not be assumed to be a fresh additive increment.
-- Reporting is thread-based, and multiple turns can occur on one thread.
+Both string and atom keys are supported.
 
 ## Implementation Checklist
 
-- Prefer `thread/tokenUsage/updated.tokenUsage.total`
-- Fallback to `info.total_token_usage`
-- Ignore `last` for totals
-- Key totals by `thread_id`
-- Do not classify generic `usage` by field name alone
-- Do not double-count turn-completed usage after live updates
+- Extract usage from Claude Code `result` events via the `item/message` notification path
+- Use delta computation against high-water marks to avoid double-counting
+- Accumulate per-entry and global totals
+- Floor all totals at zero
+- Do not assume event ordering -- rely on high-water mark comparison
+- Key totals by issue entry, not by thread or turn alone

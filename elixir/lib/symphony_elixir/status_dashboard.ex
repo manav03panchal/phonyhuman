@@ -304,15 +304,15 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp snapshot_with_samples(token_samples, now_ms) do
     case snapshot_payload() do
-      {:ok, %{running: running, retrying: retrying, codex_totals: codex_totals} = snapshot} ->
-        total_tokens = Map.get(codex_totals, :total_tokens, 0)
+      {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
+        total_tokens = Map.get(agent_totals, :total_tokens, 0)
 
         {
           {:ok,
            %{
              running: running,
              retrying: retrying,
-             codex_totals: codex_totals,
+             agent_totals: agent_totals,
              rate_limits: Map.get(snapshot, :rate_limits),
              polling: Map.get(snapshot, :polling)
            }},
@@ -329,15 +329,15 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_snapshot_content(snapshot_data, tps, terminal_columns_override \\ nil) do
     case snapshot_data do
-      {:ok, %{running: running, retrying: retrying, codex_totals: codex_totals} = snapshot} ->
+      {:ok, %{running: running, retrying: retrying, agent_totals: agent_totals} = snapshot} ->
         rate_limits = Map.get(snapshot, :rate_limits)
         project_link_lines = format_project_link_lines()
         project_refresh_line = format_project_refresh_line(Map.get(snapshot, :polling))
-        codex_input_tokens = Map.get(codex_totals, :input_tokens, 0)
-        codex_output_tokens = Map.get(codex_totals, :output_tokens, 0)
-        codex_cache_read_tokens = Map.get(codex_totals, :cache_read_tokens, 0)
-        codex_total_tokens = Map.get(codex_totals, :total_tokens, 0)
-        codex_seconds_running = Map.get(codex_totals, :seconds_running, 0)
+        agent_input_tokens = Map.get(agent_totals, :input_tokens, 0)
+        agent_output_tokens = Map.get(agent_totals, :output_tokens, 0)
+        agent_cache_read_tokens = Map.get(agent_totals, :cache_read_tokens, 0)
+        agent_total_tokens = Map.get(agent_totals, :total_tokens, 0)
+        agent_seconds_running = Map.get(agent_totals, :seconds_running, 0)
         cost_usd = Map.get(snapshot, :cost_usd)
         model = Map.get(snapshot, :model)
         agent_count = length(running)
@@ -355,15 +355,15 @@ defmodule SymphonyElixir.StatusDashboard do
              colorize("#{max_agents}", @ansi_gray),
            colorize("│ Throughput: ", @ansi_bold) <> colorize("#{format_tps(tps)} tps", @ansi_cyan),
            colorize("│ Runtime: ", @ansi_bold) <>
-             colorize(format_runtime_seconds(codex_seconds_running), @ansi_magenta),
+             colorize(format_runtime_seconds(agent_seconds_running), @ansi_magenta),
            colorize("│ Tokens: ", @ansi_bold) <>
-             colorize("in #{format_count(codex_input_tokens)}", @ansi_yellow) <>
+             colorize("in #{format_count(agent_input_tokens)}", @ansi_yellow) <>
              colorize(" | ", @ansi_gray) <>
-             colorize("out #{format_count(codex_output_tokens)}", @ansi_yellow) <>
+             colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
              colorize(" | ", @ansi_gray) <>
-             colorize("cache #{format_count(codex_cache_read_tokens)}", @ansi_yellow) <>
+             colorize("cache #{format_count(agent_cache_read_tokens)}", @ansi_yellow) <>
              colorize(" | ", @ansi_gray) <>
-             colorize("total #{format_count(codex_total_tokens)}", @ansi_yellow),
+             colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow),
            format_cost_line(cost_usd, model),
            colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
            project_link_lines,
@@ -570,14 +570,14 @@ defmodule SymphonyElixir.StatusDashboard do
         %{
           running: running,
           retrying: retrying,
-          codex_totals: codex_totals
+          agent_totals: agent_totals
         } = snapshot
         when is_list(running) and is_list(retrying) ->
           {:ok,
            %{
              running: running,
              retrying: retrying,
-             codex_totals: codex_totals,
+             agent_totals: agent_totals,
              rate_limits: Map.get(snapshot, :rate_limits),
              polling: Map.get(snapshot, :polling)
            }}
@@ -609,13 +609,13 @@ defmodule SymphonyElixir.StatusDashboard do
     state = running_entry.state || "unknown"
     state_display = format_cell(to_string(state), @running_stage_width)
     session = running_entry.session_id |> compact_session_id() |> format_cell(@running_session_width)
-    pid = format_cell(running_entry.codex_app_server_pid || "n/a", @running_pid_width)
-    total_tokens = running_entry.codex_total_tokens || 0
+    pid = format_cell(running_entry.agent_app_server_pid || "n/a", @running_pid_width)
+    total_tokens = running_entry.agent_total_tokens || 0
     runtime_seconds = running_entry.runtime_seconds || 0
     turn_count = Map.get(running_entry, :turn_count, 0)
     age = format_cell(format_runtime_and_turns(runtime_seconds, turn_count), @running_age_width)
-    event = running_entry.last_codex_event || "none"
-    event_label = format_cell(summarize_message(running_entry.last_codex_message), running_event_width)
+    event = running_entry.last_agent_event || "none"
+    event_label = format_cell(summarize_message(running_entry.last_agent_message), running_event_width)
 
     tokens = format_count(total_tokens) |> format_cell(@running_tokens_width, :right)
 
@@ -1062,8 +1062,8 @@ defmodule SymphonyElixir.StatusDashboard do
     colorize("●", color_code)
   end
 
-  defp snapshot_total_tokens({:ok, %{codex_totals: codex_totals}}) when is_map(codex_totals) do
-    Map.get(codex_totals, :total_tokens, 0)
+  defp snapshot_total_tokens({:ok, %{agent_totals: agent_totals}}) when is_map(agent_totals) do
+    Map.get(agent_totals, :total_tokens, 0)
   end
 
   defp snapshot_total_tokens(_snapshot_data), do: 0
@@ -1085,31 +1085,31 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   @doc false
-  @spec humanize_codex_message(term()) :: String.t()
-  def humanize_codex_message(nil), do: "no codex message yet"
+  @spec humanize_agent_message(term()) :: String.t()
+  def humanize_agent_message(nil), do: "no agent message yet"
 
-  def humanize_codex_message(%{event: event, message: message}) do
+  def humanize_agent_message(%{event: event, message: message}) do
     payload = unwrap_codex_message_payload(message)
 
     (humanize_codex_event(event, message, payload) || humanize_codex_payload(payload))
     |> truncate(140)
   end
 
-  def humanize_codex_message(%{message: message}) do
+  def humanize_agent_message(%{message: message}) do
     message
     |> unwrap_codex_message_payload()
     |> humanize_codex_payload()
     |> truncate(140)
   end
 
-  def humanize_codex_message(message) do
+  def humanize_agent_message(message) do
     message
     |> unwrap_codex_message_payload()
     |> humanize_codex_payload()
     |> truncate(140)
   end
 
-  defp summarize_message(message), do: humanize_codex_message(message)
+  defp summarize_message(message), do: humanize_agent_message(message)
 
   defp humanize_codex_event(:session_started, _message, payload) do
     session_id = map_value(payload, ["session_id", :session_id])
