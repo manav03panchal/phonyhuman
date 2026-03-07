@@ -657,10 +657,10 @@ defmodule SymphonyElixir.Orchestrator do
             agent_last_reported_input_tokens: 0,
             agent_last_reported_output_tokens: 0,
             agent_last_reported_total_tokens: 0,
-            codex_cache_read_tokens: 0,
-            codex_cache_creation_tokens: 0,
-            codex_cost_usd: 0.0,
-            codex_model: nil,
+            agent_cache_read_tokens: 0,
+            agent_cache_creation_tokens: 0,
+            agent_cost_usd: 0.0,
+            agent_model: nil,
             turn_count: 0,
             retry_attempt: normalize_retry_attempt(attempt),
             started_at: DateTime.utc_now()
@@ -969,10 +969,10 @@ defmodule SymphonyElixir.Orchestrator do
           agent_input_tokens: metadata.agent_input_tokens,
           agent_output_tokens: metadata.agent_output_tokens,
           agent_total_tokens: metadata.agent_total_tokens,
-          codex_cache_read_tokens: Map.get(metadata, :codex_cache_read_tokens, 0),
-          codex_cache_creation_tokens: Map.get(metadata, :codex_cache_creation_tokens, 0),
-          codex_cost_usd: Map.get(metadata, :codex_cost_usd, 0.0),
-          codex_model: Map.get(metadata, :codex_model),
+          agent_cache_read_tokens: Map.get(metadata, :agent_cache_read_tokens, 0),
+          agent_cache_creation_tokens: Map.get(metadata, :agent_cache_creation_tokens, 0),
+          agent_cost_usd: Map.get(metadata, :agent_cost_usd, 0.0),
+          agent_model: Map.get(metadata, :agent_model),
           turn_count: Map.get(metadata, :turn_count, 0),
           started_at: metadata.started_at,
           last_agent_timestamp: metadata.last_agent_timestamp,
@@ -1048,9 +1048,9 @@ defmodule SymphonyElixir.Orchestrator do
     last_reported_total = Map.get(running_entry, :agent_last_reported_total_tokens, 0)
     turn_count = Map.get(running_entry, :turn_count, 0)
 
-    codex_cache_read = Map.get(running_entry, :codex_cache_read_tokens, 0)
-    codex_cache_creation = Map.get(running_entry, :codex_cache_creation_tokens, 0)
-    codex_cost_usd = Map.get(running_entry, :codex_cost_usd, 0.0)
+    agent_cache_read = Map.get(running_entry, :agent_cache_read_tokens, 0)
+    agent_cache_creation = Map.get(running_entry, :agent_cache_creation_tokens, 0)
+    agent_cost_usd = Map.get(running_entry, :agent_cost_usd, 0.0)
 
     delta_model = Map.get(token_delta, :model)
 
@@ -1068,11 +1068,11 @@ defmodule SymphonyElixir.Orchestrator do
         agent_last_reported_output_tokens: max(last_reported_output, token_delta.output_reported),
         agent_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
         turn_count: turn_count_for_update(turn_count, running_entry.session_id, update),
-        codex_cache_read_tokens: codex_cache_read + Map.get(token_delta, :cache_read_tokens, 0),
-        codex_cache_creation_tokens:
-          codex_cache_creation + Map.get(token_delta, :cache_creation_tokens, 0),
-        codex_cost_usd: codex_cost_usd + Map.get(token_delta, :cost_usd, 0.0),
-        codex_model: if(delta_model, do: delta_model, else: Map.get(running_entry, :codex_model))
+        agent_cache_read_tokens: agent_cache_read + Map.get(token_delta, :cache_read_tokens, 0),
+        agent_cache_creation_tokens:
+          agent_cache_creation + Map.get(token_delta, :cache_creation_tokens, 0),
+        agent_cost_usd: agent_cost_usd + Map.get(token_delta, :cost_usd, 0.0),
+        agent_model: if(delta_model, do: delta_model, else: Map.get(running_entry, :agent_model))
       }),
       token_delta
     }
@@ -1438,16 +1438,16 @@ defmodule SymphonyElixir.Orchestrator do
             identifier: issue.identifier,
             issue: issue,
             session_id: nil,
-            last_codex_message: nil,
-            last_codex_timestamp: nil,
-            last_codex_event: nil,
-            codex_app_server_pid: nil,
-            codex_input_tokens: 0,
-            codex_output_tokens: 0,
-            codex_total_tokens: 0,
-            codex_last_reported_input_tokens: 0,
-            codex_last_reported_output_tokens: 0,
-            codex_last_reported_total_tokens: 0,
+            last_agent_message: nil,
+            last_agent_timestamp: nil,
+            last_agent_event: nil,
+            agent_app_server_pid: nil,
+            agent_input_tokens: 0,
+            agent_output_tokens: 0,
+            agent_total_tokens: 0,
+            agent_last_reported_input_tokens: 0,
+            agent_last_reported_output_tokens: 0,
+            agent_last_reported_total_tokens: 0,
             turn_count: 0,
             retry_attempt: 0,
             started_at: DateTime.utc_now(),
