@@ -508,7 +508,7 @@ for asset in data.get('assets', []):
 
     local tmpdir
     tmpdir=$(mktemp -d)
-    trap 'rm -rf "$tmpdir"' EXIT
+    trap 'rm -rf "${tmpdir:-}"' EXIT
 
     if [[ -n "$auth_header" ]]; then
         curl -sSL -H "$auth_header" -o "$tmpdir/phonyhuman.tar.gz" "$tarball_url" || die "Download failed"
@@ -843,7 +843,7 @@ cmd_run() {
     # ── Parse config and generate workflow ────────────────────────────
     local workflow_file
     workflow_file=$(mktemp /tmp/phonyhuman-workflow-XXXXXX.md)
-    trap 'rm -f "$workflow_file"' EXIT
+    trap 'rm -f "${workflow_file:-}"' EXIT
 
     local output
     output=$(generate_workflow "$config_file" "$workflow_file" "$SHIM_PATH" 2>&1)
