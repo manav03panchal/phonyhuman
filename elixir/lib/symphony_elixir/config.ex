@@ -34,6 +34,10 @@ defmodule SymphonyElixir.Config do
   @default_agent_turn_timeout_ms 3_600_000
   @default_agent_read_timeout_ms 5_000
   @default_agent_stall_timeout_ms 300_000
+  @default_fleet_pause_default_ms 1_800_000
+  @default_fleet_pause_max_ms 14_400_000
+  @default_fleet_pause_pattern_window_ms 60_000
+  @default_fleet_pause_pattern_threshold 3
   @default_agent_approval_policy %{
     "reject" => %{
       "sandbox_approval" => true,
@@ -102,6 +106,22 @@ defmodule SymphonyElixir.Config do
                                  max_concurrent_agents_by_state: [
                                    type: {:map, :string, :pos_integer},
                                    default: %{}
+                                 ],
+                                 fleet_pause_default_ms: [
+                                   type: :pos_integer,
+                                   default: @default_fleet_pause_default_ms
+                                 ],
+                                 fleet_pause_max_ms: [
+                                   type: :pos_integer,
+                                   default: @default_fleet_pause_max_ms
+                                 ],
+                                 fleet_pause_pattern_window_ms: [
+                                   type: :pos_integer,
+                                   default: @default_fleet_pause_pattern_window_ms
+                                 ],
+                                 fleet_pause_pattern_threshold: [
+                                   type: :pos_integer,
+                                   default: @default_fleet_pause_pattern_threshold
                                  ]
                                ]
                              ],
@@ -277,6 +297,26 @@ defmodule SymphonyElixir.Config do
   end
 
   def max_concurrent_agents_for_state(_state_name), do: max_concurrent_agents()
+
+  @spec fleet_pause_default_ms() :: pos_integer()
+  def fleet_pause_default_ms do
+    get_in(validated_workflow_options(), [:agent, :fleet_pause_default_ms])
+  end
+
+  @spec fleet_pause_max_ms() :: pos_integer()
+  def fleet_pause_max_ms do
+    get_in(validated_workflow_options(), [:agent, :fleet_pause_max_ms])
+  end
+
+  @spec fleet_pause_pattern_window_ms() :: pos_integer()
+  def fleet_pause_pattern_window_ms do
+    get_in(validated_workflow_options(), [:agent, :fleet_pause_pattern_window_ms])
+  end
+
+  @spec fleet_pause_pattern_threshold() :: pos_integer()
+  def fleet_pause_pattern_threshold do
+    get_in(validated_workflow_options(), [:agent, :fleet_pause_pattern_threshold])
+  end
 
   @spec agent_command() :: String.t()
   def agent_command do
@@ -491,6 +531,10 @@ defmodule SymphonyElixir.Config do
       :max_concurrent_agents_by_state,
       state_limits_value(Map.get(section, "max_concurrent_agents_by_state"))
     )
+    |> put_if_present(:fleet_pause_default_ms, positive_integer_value(Map.get(section, "fleet_pause_default_ms")))
+    |> put_if_present(:fleet_pause_max_ms, positive_integer_value(Map.get(section, "fleet_pause_max_ms")))
+    |> put_if_present(:fleet_pause_pattern_window_ms, positive_integer_value(Map.get(section, "fleet_pause_pattern_window_ms")))
+    |> put_if_present(:fleet_pause_pattern_threshold, positive_integer_value(Map.get(section, "fleet_pause_pattern_threshold")))
   end
 
   defp extract_agent_server_options(section) do
