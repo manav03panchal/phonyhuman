@@ -19,7 +19,7 @@ defmodule SymphonyElixirWeb.Presenter do
           },
           running: Enum.map(snapshot.running, &running_entry_payload/1),
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
-          agent_totals: snapshot.agent_totals,
+          agent_totals: enrich_agent_totals(snapshot.agent_totals),
           rate_limits: snapshot.rate_limits
         }
 
@@ -105,10 +105,13 @@ defmodule SymphonyElixirWeb.Presenter do
       last_message: summarize_message(entry.last_agent_message),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_agent_timestamp),
+      model: Map.get(entry, :model),
       tokens: %{
         input_tokens: entry.agent_input_tokens,
         output_tokens: entry.agent_output_tokens,
-        total_tokens: entry.agent_total_tokens
+        total_tokens: entry.agent_total_tokens,
+        cache_read_tokens: Map.get(entry, :agent_cache_read_tokens, 0),
+        cost_usd: Map.get(entry, :agent_cost_usd, 0)
       }
     }
   end
@@ -170,6 +173,13 @@ defmodule SymphonyElixirWeb.Presenter do
   end
 
   defp due_at_iso8601(_due_in_ms), do: nil
+
+  defp enrich_agent_totals(totals) do
+    Map.merge(
+      %{cache_read_tokens: 0, cache_creation_tokens: 0, cost_usd: 0},
+      totals
+    )
+  end
 
   defp iso8601(%DateTime{} = datetime) do
     datetime
