@@ -98,6 +98,17 @@ defmodule SymphonyElixirWeb.Presenter do
   defp issue_status(_running, _retry), do: "running"
 
   defp running_entry_payload(entry) do
+    tool_executions = Map.get(entry, :otel_tool_executions, [])
+    tool_calls = length(tool_executions)
+
+    tool_avg_duration_ms =
+      if tool_calls > 0 do
+        total_ms = Enum.reduce(tool_executions, 0, fn t, acc -> acc + Map.get(t, :duration_ms, 0) end)
+        div(total_ms, tool_calls)
+      else
+        0
+      end
+
     %{
       issue_id: entry.issue_id,
       issue_identifier: entry.identifier,
@@ -116,7 +127,14 @@ defmodule SymphonyElixirWeb.Presenter do
         cache_read_tokens: Map.get(entry, :agent_cache_read_tokens, 0),
         cache_hit_rate: cache_hit_rate(entry.agent_input_tokens, Map.get(entry, :agent_cache_read_tokens, 0)),
         cost_usd: Map.get(entry, :agent_cost_usd, 0)
-      }
+      },
+      lines_changed: Map.get(entry, :otel_lines_changed, 0),
+      commits_count: Map.get(entry, :otel_commits_count, 0),
+      prs_count: Map.get(entry, :otel_prs_count, 0),
+      tool_calls: tool_calls,
+      tool_avg_duration_ms: tool_avg_duration_ms,
+      api_errors: Map.get(entry, :otel_api_errors, 0),
+      active_time_seconds: Map.get(entry, :otel_active_time_seconds, 0)
     }
   end
 
@@ -185,7 +203,27 @@ defmodule SymphonyElixirWeb.Presenter do
         totals
       )
 
-    Map.put(enriched, :cache_hit_rate, cache_hit_rate(enriched.input_tokens, enriched.cache_read_tokens))
+    tool_executions = Map.get(enriched, :tool_executions, [])
+    tool_calls = length(tool_executions)
+
+    tool_avg_duration_ms =
+      if tool_calls > 0 do
+        total_ms = Enum.reduce(tool_executions, 0, fn t, acc -> acc + Map.get(t, :duration_ms, 0) end)
+        div(total_ms, tool_calls)
+      else
+        0
+      end
+
+    enriched
+    |> Map.put(:cache_hit_rate, cache_hit_rate(enriched.input_tokens, enriched.cache_read_tokens))
+    |> Map.put(:lines_changed, Map.get(enriched, :lines_changed, 0))
+    |> Map.put(:commits_count, Map.get(enriched, :commits_count, 0))
+    |> Map.put(:prs_count, Map.get(enriched, :prs_count, 0))
+    |> Map.put(:tool_calls, tool_calls)
+    |> Map.put(:tool_avg_duration_ms, tool_avg_duration_ms)
+    |> Map.put(:api_errors, Map.get(enriched, :api_errors, 0))
+    |> Map.put(:active_time_seconds, Map.get(enriched, :active_time_seconds, 0))
+    |> Map.drop([:tool_executions])
   end
 
   @doc false

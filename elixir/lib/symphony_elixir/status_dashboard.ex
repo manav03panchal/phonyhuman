@@ -373,6 +373,8 @@ defmodule SymphonyElixir.StatusDashboard do
              colorize(" | ", @ansi_gray) <>
              colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow),
            format_cost_line(cost_usd, model),
+           format_code_line(agent_totals),
+           format_tools_line(agent_totals),
            colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
            project_link_lines,
            project_refresh_line,
@@ -461,6 +463,56 @@ defmodule SymphonyElixir.StatusDashboard do
       end
 
     colorize("│ Cost: ", @ansi_bold) <> colorize("$#{cost_str}#{model_suffix}", @ansi_green)
+  end
+
+  defp format_code_line(agent_totals) do
+    lines = Map.get(agent_totals, :lines_changed, 0)
+    commits = Map.get(agent_totals, :commits_count, 0)
+    prs = Map.get(agent_totals, :prs_count, 0)
+
+    if lines == 0 and commits == 0 and prs == 0 do
+      []
+    else
+      parts =
+        [
+          if(lines > 0, do: "#{format_count(lines)} lines"),
+          if(commits > 0, do: "#{commits} #{if commits == 1, do: "commit", else: "commits"}"),
+          if(prs > 0, do: "#{prs} #{if prs == 1, do: "PR", else: "PRs"}")
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(" | ")
+
+      colorize("│ Code: ", @ansi_bold) <> colorize(parts, @ansi_green)
+    end
+  end
+
+  defp format_tools_line(agent_totals) do
+    tool_executions = Map.get(agent_totals, :tool_executions, [])
+    tool_count = length(tool_executions)
+    api_errors = Map.get(agent_totals, :api_errors, 0)
+
+    if tool_count == 0 and api_errors == 0 do
+      []
+    else
+      avg_duration =
+        if tool_count > 0 do
+          total_ms = Enum.reduce(tool_executions, 0, fn t, acc -> acc + Map.get(t, :duration_ms, 0) end)
+          avg_s = total_ms / tool_count / 1000.0
+          :erlang.float_to_binary(avg_s, decimals: 1)
+        else
+          "0.0"
+        end
+
+      parts =
+        [
+          if(tool_count > 0, do: "#{tool_count} #{if tool_count == 1, do: "call", else: "calls"}, avg #{avg_duration}s"),
+          "#{api_errors} #{if api_errors == 1, do: "error", else: "errors"}"
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(" | ")
+
+      colorize("│ Tools: ", @ansi_bold) <> colorize(parts, @ansi_cyan)
+    end
   end
 
   defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"

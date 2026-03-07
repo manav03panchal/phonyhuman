@@ -246,6 +246,73 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
     Snapshot.assert_dashboard_snapshot!("cost_with_model", render_snapshot(snapshot_data, 145.0))
   end
 
+  test "snapshot fixture: otel metrics with code and tools lines" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{
+           input_tokens: 45_230,
+           output_tokens: 8_120,
+           cache_read_tokens: 31_500,
+           total_tokens: 53_350,
+           seconds_running: 754,
+           tool_executions: [
+             %{name: "Read", duration_ms: 150, success: true},
+             %{name: "Edit", duration_ms: 300, success: true},
+             %{name: "Bash", duration_ms: 2_500, success: true},
+             %{name: "Grep", duration_ms: 120, success: true},
+             %{name: "Bash", duration_ms: 1_800, success: true},
+             %{name: "Read", duration_ms: 90, success: true},
+             %{name: "Edit", duration_ms: 250, success: true},
+             %{name: "Bash", duration_ms: 3_200, success: true},
+             %{name: "Write", duration_ms: 180, success: true},
+             %{name: "Glob", duration_ms: 80, success: true},
+             %{name: "Bash", duration_ms: 4_100, success: true},
+             %{name: "Read", duration_ms: 130, success: true}
+           ],
+           api_errors: 0,
+           lines_changed: 180,
+           commits_count: 3,
+           prs_count: 1,
+           active_time_seconds: 754
+         },
+         cost_usd: 0.42,
+         model: "claude-opus-4-6",
+         rate_limits: nil
+       }}
+
+    Snapshot.assert_dashboard_snapshot!("otel_metrics", render_snapshot(snapshot_data, 145.0))
+  end
+
+  test "snapshot fixture: otel metrics hidden when all zero" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{
+           input_tokens: 1_000,
+           output_tokens: 200,
+           cache_read_tokens: 500,
+           total_tokens: 1_200,
+           seconds_running: 30,
+           tool_executions: [],
+           api_errors: 0,
+           lines_changed: 0,
+           commits_count: 0,
+           prs_count: 0,
+           active_time_seconds: 0
+         },
+         rate_limits: nil
+       }}
+
+    rendered = render_snapshot(snapshot_data, 10.0)
+    refute rendered =~ "Code:"
+    refute rendered =~ "Tools:"
+  end
+
   test "snapshot fixture: no cost line when cost is zero" do
     snapshot_data =
       {:ok,

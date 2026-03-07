@@ -355,7 +355,14 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "started_at" => state_payload["running"] |> List.first() |> Map.fetch!("started_at"),
                  "last_event_at" => nil,
                  "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12, "cache_read_tokens" => 0, "cache_hit_rate" => 0.0, "cost_usd" => 0},
-                 "model" => nil
+                 "model" => nil,
+                 "lines_changed" => 0,
+                 "commits_count" => 0,
+                 "prs_count" => 0,
+                 "tool_calls" => 0,
+                 "tool_avg_duration_ms" => 0,
+                 "api_errors" => 0,
+                 "active_time_seconds" => 0
                }
              ],
              "retrying" => [
@@ -375,7 +382,14 @@ defmodule SymphonyElixir.ExtensionsTest do
                "cache_read_tokens" => 0,
                "cache_creation_tokens" => 0,
                "cache_hit_rate" => 0.0,
-               "cost_usd" => 0
+               "cost_usd" => 0,
+               "lines_changed" => 0,
+               "commits_count" => 0,
+               "prs_count" => 0,
+               "tool_calls" => 0,
+               "tool_avg_duration_ms" => 0,
+               "api_errors" => 0,
+               "active_time_seconds" => 0
              },
              "rate_limits" => %{"primary" => %{"remaining" => 11}},
              "fleet_status" => "running",
