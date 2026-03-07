@@ -1050,7 +1050,7 @@ defmodule SymphonyElixir.AppServerTest do
           assert {:ok, _result} = AppServer.run(workspace, "Capture stderr log", issue)
         end)
 
-      assert log =~ "Codex turn stream output: warning: this is stderr noise"
+      assert log =~ "Agent turn stream output: warning: this is stderr noise"
     after
       File.rm_rf(test_root)
     end

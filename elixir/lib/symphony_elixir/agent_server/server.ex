@@ -185,7 +185,7 @@ defmodule SymphonyElixir.AgentServer.Server do
   defp port_metadata(port) when is_port(port) do
     case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
-        %{codex_app_server_pid: to_string(os_pid)}
+        %{agent_server_pid: to_string(os_pid)}
 
       _ ->
         %{}
@@ -458,7 +458,7 @@ defmodule SymphonyElixir.AgentServer.Server do
             metadata
           )
 
-          Logger.debug("Codex notification: #{inspect(method)}")
+          Logger.debug("Agent notification: #{inspect(method)}")
           receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
         end
     end
@@ -872,9 +872,9 @@ defmodule SymphonyElixir.AgentServer.Server do
 
     if text != "" do
       if String.match?(text, ~r/\b(error|warn|warning|failed|fatal|panic|exception)\b/i) do
-        Logger.warning("Codex #{stream_label} output: #{text}")
+        Logger.warning("Agent #{stream_label} output: #{text}")
       else
-        Logger.debug("Codex #{stream_label} output: #{text}")
+        Logger.debug("Agent #{stream_label} output: #{text}")
       end
     end
   end
