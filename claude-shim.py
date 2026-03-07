@@ -370,7 +370,13 @@ class Session:
         def run_turn():
             def on_event(evt):
                 # Forward Claude events as notifications so Symphony can log them
-                send_notification("item/message", {"event": evt})
+                params = {"event": evt}
+                # Forward usage from raw Claude event if present
+                if evt.get("type") == "claude_event":
+                    raw_event = evt.get("event", {})
+                    if isinstance(raw_event, dict) and "usage" in raw_event:
+                        params["usage"] = raw_event["usage"]
+                send_notification("item/message", params)
 
             runner = ClaudeRunner(cwd, prompt, on_event)
             self.current_runner = runner
@@ -420,10 +426,30 @@ class Session:
                     send_notification("turn/failed", fail_params)
                 else:
                     log("turn completed successfully")
-                    send_notification("turn/completed", {
+                    completed_params = {
                         "turnId": turn_id,
                         "threadId": self.thread_id,
-                    })
+                    }
+                    # Extract usage metrics from result
+                    if isinstance(result, dict):
+                        raw_usage = result.get("usage")
+                        if isinstance(raw_usage, dict):
+                            completed_params["usage"] = {
+                                "input_tokens": raw_usage.get("input_tokens", 0),
+                                "output_tokens": raw_usage.get("output_tokens", 0),
+                                "cache_read_input_tokens": raw_usage.get("cache_read_input_tokens", 0),
+                                "cache_creation_input_tokens": raw_usage.get("cache_creation_input_tokens", 0),
+                                "total_tokens": raw_usage.get("input_tokens", 0) + raw_usage.get("output_tokens", 0),
+                            }
+                        if result.get("cost_usd") is not None:
+                            completed_params["cost_usd"] = result["cost_usd"]
+                        if result.get("duration_ms") is not None:
+                            completed_params["duration_ms"] = result["duration_ms"]
+                        if result.get("model") is not None:
+                            completed_params["model"] = result["model"]
+                        if result.get("num_turns") is not None:
+                            completed_params["num_turns"] = result["num_turns"]
+                    send_notification("turn/completed", completed_params)
             else:
                 log_error(f"turn failed: {result}")
                 send_notification("turn/failed", {
