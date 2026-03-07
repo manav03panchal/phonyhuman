@@ -219,6 +219,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
                       <div class="token-stack numeric">
                         <span>Total: <%= format_int(entry.tokens.total_tokens) %></span>
                         <span class="muted">In <%= format_int(entry.tokens.input_tokens) %> / Out <%= format_int(entry.tokens.output_tokens) %></span>
+                        <span class="muted">Cache hit: <%= format_percent(entry.tokens.cache_hit_rate) %></span>
                         <%= if entry.tokens.cost_usd > 0 do %>
                           <span class="muted"><%= format_usd(entry.tokens.cost_usd) %></span>
                         <% end %>
@@ -342,6 +343,12 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp format_int(_value), do: "n/a"
+
+  defp format_percent(rate) when is_float(rate) do
+    "#{:erlang.float_to_binary(rate, decimals: 1)}%"
+  end
+
+  defp format_percent(_rate), do: "0.0%"
 
   defp state_badge_class(state) do
     base = "state-badge"

@@ -114,6 +114,7 @@ defmodule SymphonyElixirWeb.Presenter do
         output_tokens: entry.agent_output_tokens,
         total_tokens: entry.agent_total_tokens,
         cache_read_tokens: Map.get(entry, :agent_cache_read_tokens, 0),
+        cache_hit_rate: cache_hit_rate(entry.agent_input_tokens, Map.get(entry, :agent_cache_read_tokens, 0)),
         cost_usd: Map.get(entry, :agent_cost_usd, 0)
       }
     }
@@ -178,10 +179,26 @@ defmodule SymphonyElixirWeb.Presenter do
   defp due_at_iso8601(_due_in_ms), do: nil
 
   defp enrich_agent_totals(totals) do
-    Map.merge(
-      %{cache_read_tokens: 0, cache_creation_tokens: 0, cost_usd: 0},
-      totals
-    )
+    enriched =
+      Map.merge(
+        %{cache_read_tokens: 0, cache_creation_tokens: 0, cost_usd: 0},
+        totals
+      )
+
+    Map.put(enriched, :cache_hit_rate, cache_hit_rate(enriched.input_tokens, enriched.cache_read_tokens))
+  end
+
+  @doc false
+  def cache_hit_rate(_input, cache_read) when cache_read == 0, do: 0.0
+
+  def cache_hit_rate(input, cache_read) do
+    denominator = input + cache_read
+
+    if denominator == 0 do
+      0.0
+    else
+      cache_read / denominator * 100
+    end
   end
 
   defp iso8601(%DateTime{} = datetime) do

@@ -340,6 +340,7 @@ defmodule SymphonyElixir.StatusDashboard do
         agent_output_tokens = Map.get(agent_totals, :output_tokens, 0)
         agent_cache_read_tokens = Map.get(agent_totals, :cache_read_tokens, 0)
         agent_total_tokens = Map.get(agent_totals, :total_tokens, 0)
+        cache_hit_rate = SymphonyElixirWeb.Presenter.cache_hit_rate(agent_input_tokens, agent_cache_read_tokens)
         agent_seconds_running = Map.get(agent_totals, :seconds_running, 0)
         cost_usd = Map.get(snapshot, :cost_usd)
         model = Map.get(snapshot, :model)
@@ -368,6 +369,7 @@ defmodule SymphonyElixir.StatusDashboard do
              colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
              colorize(" | ", @ansi_gray) <>
              colorize("cache #{format_count(agent_cache_read_tokens)}", @ansi_yellow) <>
+             colorize(" (#{format_hit_rate(cache_hit_rate)})", @ansi_cyan) <>
              colorize(" | ", @ansi_gray) <>
              colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow),
            format_cost_line(cost_usd, model),
@@ -772,6 +774,10 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   defp format_count(value), do: to_string(value)
+
+  defp format_hit_rate(rate) when is_float(rate) do
+    :erlang.float_to_binary(rate, decimals: 1) <> "%"
+  end
 
   defp running_table_header_row(running_event_width) do
     header =
