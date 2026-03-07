@@ -31,10 +31,10 @@ defmodule SymphonyElixir.Linear.Client do
             name
           }
         }
-        inverseRelations(first: $relationFirst) {
+        relations(first: $relationFirst) {
           nodes {
             type
-            issue {
+            relatedIssue {
               id
               identifier
               state {
@@ -76,10 +76,10 @@ defmodule SymphonyElixir.Linear.Client do
             name
           }
         }
-        inverseRelations(first: $relationFirst) {
+        relations(first: $relationFirst) {
           nodes {
             type
-            issue {
+            relatedIssue {
               id
               identifier
               state {
@@ -491,11 +491,11 @@ defmodule SymphonyElixir.Linear.Client do
 
   defp extract_labels(_), do: []
 
-  defp extract_blockers(%{"inverseRelations" => %{"nodes" => inverse_relations}})
-       when is_list(inverse_relations) do
-    inverse_relations
+  defp extract_blockers(%{"relations" => %{"nodes" => relations}})
+       when is_list(relations) do
+    relations
     |> Enum.flat_map(fn
-      %{"type" => relation_type, "issue" => blocker_issue}
+      %{"type" => relation_type, "relatedIssue" => blocker_issue}
       when is_binary(relation_type) and is_map(blocker_issue) ->
         if String.downcase(String.trim(relation_type)) == "blocks" do
           [
