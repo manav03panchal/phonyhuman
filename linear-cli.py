@@ -22,8 +22,30 @@ import urllib.request
 import urllib.error
 
 
-API_KEY = os.environ.get("LINEAR_API_KEY", "")
 ENDPOINT = os.environ.get("LINEAR_ENDPOINT", "https://api.linear.app/graphql")
+
+
+def _find_api_key():
+    """Resolve LINEAR_API_KEY from env or a phonyhuman TOML config."""
+    key = os.environ.get("LINEAR_API_KEY", "")
+    if key:
+        return key
+    # Search for a phonyhuman TOML config in the current directory
+    import glob
+    import tomllib
+    for candidate in glob.glob("*.toml"):
+        try:
+            with open(candidate, "rb") as f:
+                cfg = tomllib.load(f)
+            key = cfg.get("linear", {}).get("api_key", "")
+            if key:
+                return key
+        except Exception:
+            continue
+    return ""
+
+
+API_KEY = _find_api_key()
 
 
 def die(msg):

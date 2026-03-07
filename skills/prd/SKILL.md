@@ -36,9 +36,25 @@ can be inferred from the repo if accessible.
 
 ## Prerequisites
 
-You need access to Linear via either:
-- The `linear_graphql` tool (Symphony app-server sessions), or
-- A Linear MCP server
+You need access to Linear via one of these (in order of preference):
+
+1. **`linear_graphql` tool** — available in Symphony app-server sessions
+2. **Linear MCP server** — configured in Claude Code settings
+3. **`linear-cli.py graphql`** — ships with phonyhuman, reads the API
+   key from the TOML config automatically (no need to handle the key)
+
+For option 3, call via bash:
+
+```bash
+python3 ~/.phonyhuman/bin/linear-cli.py graphql '<query>' '{"var": "value"}'
+```
+
+The CLI finds the API key from any `*.toml` phonyhuman config in the
+current directory. Do NOT read or echo the API key yourself.
+
+All GraphQL examples in this skill are written as query/variable pairs.
+When using `linear-cli.py`, pass the query as the first argument and
+variables JSON as the second.
 
 ## Step 0: Gather context and set up Linear
 
