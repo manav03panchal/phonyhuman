@@ -766,7 +766,7 @@ hooks:
 {hooks_section}agent:
   max_concurrent_agents: {max_agents}
   max_turns: {max_turns}
-codex:
+agent_server:
   command: "python3 {shim_path}"
   approval_policy: never
   thread_sandbox: workspace-write

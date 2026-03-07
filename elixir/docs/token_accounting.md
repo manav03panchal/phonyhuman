@@ -5,7 +5,7 @@ This document explains how Claude Code reports token usage through its `stream-j
 It is based on the current implementation in:
 
 - `claude-shim.py` -- the shim that wraps the Claude CLI
-- `elixir/lib/symphony_elixir/codex/app_server.ex` -- event parsing and usage extraction
+- `elixir/lib/symphony_elixir/agent_server/server.ex` -- event parsing and usage extraction
 - `elixir/lib/symphony_elixir/orchestrator.ex` -- token delta computation and accumulation
 
 ## Short Version
@@ -137,7 +137,7 @@ The orchestrator (`orchestrator.ex`) maintains per-entry and global token totals
 
 ### State Structure
 
-Global totals are tracked in `state.codex_totals`:
+Global totals are tracked in `state.agent_totals`:
 
 ```elixir
 %{
@@ -150,8 +150,8 @@ Global totals are tracked in `state.codex_totals`:
 
 Per-entry (per-issue) fields track both accumulated tokens and the last reported values used for delta computation:
 
-- `codex_input_tokens`, `codex_output_tokens`, `codex_total_tokens` -- accumulated totals
-- `codex_last_reported_input_tokens`, `codex_last_reported_output_tokens`, `codex_last_reported_total_tokens` -- high-water marks from the source
+- `agent_input_tokens`, `agent_output_tokens`, `agent_total_tokens` -- accumulated totals
+- `last_reported_input_tokens`, `last_reported_output_tokens`, `last_reported_total_tokens` -- high-water marks from the source
 - `turn_count` -- number of completed turns for the entry
 
 ### Usage Extraction
@@ -180,21 +180,21 @@ delta = max(0, next_reported_total - previous_reported_total)
 For each token dimension (input, output, total):
 
 1. Read the new reported value from the extracted usage.
-2. Read the previous high-water mark from the running entry (`codex_last_reported_*_tokens`).
+2. Read the previous high-water mark from the running entry (`last_reported_*_tokens`).
 3. If the new value is greater than or equal to the previous, the delta is the difference.
 4. Otherwise the delta is 0 (protects against decreasing values).
 
 ### Accumulation
 
-`integrate_codex_update/2` applies the computed delta:
+`integrate_agent_update/2` applies the computed delta:
 
 ```elixir
-codex_input_tokens:  existing_input  + delta.input_tokens
-codex_output_tokens: existing_output + delta.output_tokens
-codex_total_tokens:  existing_total  + delta.total_tokens
+agent_input_tokens:  existing_input  + delta.input_tokens
+agent_output_tokens: existing_output + delta.output_tokens
+agent_total_tokens:  existing_total  + delta.total_tokens
 ```
 
-The high-water marks are updated to the maximum of the old and new reported values. The delta is also applied to the global `codex_totals` via `apply_codex_token_delta/2`, which floors each total at zero.
+The high-water marks are updated to the maximum of the old and new reported values. The delta is also applied to the global `agent_totals` via `apply_token_delta/2`, which floors each total at zero.
 
 ## Accounting Strategy
 
@@ -240,8 +240,8 @@ These fields are forwarded through the event stream and can be extracted if need
 | Component      | File                                              | Key Functions                                                    |
 | -------------- | ------------------------------------------------- | ---------------------------------------------------------------- |
 | Shim           | `claude-shim.py`                                  | `ClaudeRunner.run()`, `run_turn()`                               |
-| App Server     | `elixir/lib/symphony_elixir/codex/app_server.ex`  | `handle_incoming/6`, `maybe_set_usage/2`, `emit_turn_event/6`    |
-| Orchestrator   | `elixir/lib/symphony_elixir/orchestrator.ex`       | `integrate_codex_update/2`, `extract_token_delta/2`, `extract_token_usage/1` |
+| App Server     | `elixir/lib/symphony_elixir/agent_server/server.ex` | `handle_incoming/6`, `maybe_set_usage/2`, `emit_turn_event/6`    |
+| Orchestrator   | `elixir/lib/symphony_elixir/orchestrator.ex`        | `integrate_agent_update/2`, `extract_token_delta/2`, `extract_token_usage/1` |
 
 ### Naming Convention Support
 
