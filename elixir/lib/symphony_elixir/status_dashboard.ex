@@ -335,8 +335,11 @@ defmodule SymphonyElixir.StatusDashboard do
         project_refresh_line = format_project_refresh_line(Map.get(snapshot, :polling))
         agent_input_tokens = Map.get(agent_totals, :input_tokens, 0)
         agent_output_tokens = Map.get(agent_totals, :output_tokens, 0)
+        agent_cache_read_tokens = Map.get(agent_totals, :cache_read_tokens, 0)
         agent_total_tokens = Map.get(agent_totals, :total_tokens, 0)
         agent_seconds_running = Map.get(agent_totals, :seconds_running, 0)
+        cost_usd = Map.get(snapshot, :cost_usd)
+        model = Map.get(snapshot, :model)
         agent_count = length(running)
         max_agents = Config.max_concurrent_agents()
         running_event_width = running_event_width(terminal_columns_override)
@@ -358,7 +361,10 @@ defmodule SymphonyElixir.StatusDashboard do
              colorize(" | ", @ansi_gray) <>
              colorize("out #{format_count(agent_output_tokens)}", @ansi_yellow) <>
              colorize(" | ", @ansi_gray) <>
+             colorize("cache #{format_count(agent_cache_read_tokens)}", @ansi_yellow) <>
+             colorize(" | ", @ansi_gray) <>
              colorize("total #{format_count(agent_total_tokens)}", @ansi_yellow),
+           format_cost_line(cost_usd, model),
            colorize("│ Rate Limits: ", @ansi_bold) <> format_rate_limits(rate_limits),
            project_link_lines,
            project_refresh_line,
@@ -422,6 +428,20 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp format_project_refresh_line(_) do
     colorize("│ Next refresh: ", @ansi_bold) <> colorize("n/a", @ansi_gray)
+  end
+
+  defp format_cost_line(cost_usd, _model) when is_nil(cost_usd) or cost_usd == 0, do: []
+
+  defp format_cost_line(cost_usd, model) when is_number(cost_usd) do
+    cost_str = :erlang.float_to_binary(cost_usd / 1, decimals: 2)
+
+    model_suffix =
+      case model do
+        m when is_binary(m) and m != "" -> "  (#{m})"
+        _ -> ""
+      end
+
+    colorize("│ Cost: ", @ansi_bold) <> colorize("$#{cost_str}#{model_suffix}", @ansi_green)
   end
 
   defp linear_project_url(project_slug), do: "https://linear.app/project/#{project_slug}/issues"

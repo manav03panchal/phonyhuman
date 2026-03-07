@@ -11,7 +11,13 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
        %{
          running: [],
          retrying: [],
-         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{
+           input_tokens: 0,
+           output_tokens: 0,
+           cache_read_tokens: 0,
+           total_tokens: 0,
+           seconds_running: 0
+         },
          rate_limits: nil
        }}
 
@@ -36,7 +42,13 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
        %{
          running: [],
          retrying: [],
-         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{
+           input_tokens: 0,
+           output_tokens: 0,
+           cache_read_tokens: 0,
+           total_tokens: 0,
+           seconds_running: 0
+         },
          rate_limits: nil
        }}
 
@@ -71,6 +83,7 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
          agent_totals: %{
            input_tokens: 250_000,
            output_tokens: 18_500,
+           cache_read_tokens: 0,
            total_tokens: 268_500,
            seconds_running: 4_321
          },
@@ -126,7 +139,13 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
              error: "fourth queued retry should also render after removing the top-three limit"
            })
          ],
-         agent_totals: %{input_tokens: 18_000, output_tokens: 2_200, total_tokens: 20_200, seconds_running: 2_700},
+         agent_totals: %{
+           input_tokens: 18_000,
+           output_tokens: 2_200,
+           cache_read_tokens: 0,
+           total_tokens: 20_200,
+           seconds_running: 2_700
+         },
          rate_limits: %{
            limit_id: "gpt-5",
            primary: %{remaining: 0, limit: 20_000, reset_in_seconds: 95},
@@ -151,7 +170,13 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
              error: "error with \\nnewline"
            })
          ],
-         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+         agent_totals: %{
+           input_tokens: 0,
+           output_tokens: 0,
+           cache_read_tokens: 0,
+           total_tokens: 0,
+           seconds_running: 0
+         },
          rate_limits: nil
        }}
 
@@ -182,7 +207,13 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
            })
          ],
          retrying: [],
-         agent_totals: %{input_tokens: 90, output_tokens: 12, total_tokens: 102, seconds_running: 75},
+         agent_totals: %{
+           input_tokens: 90,
+           output_tokens: 12,
+           cache_read_tokens: 0,
+           total_tokens: 102,
+           seconds_running: 75
+         },
          rate_limits: %{
            limit_id: "priority-tier",
            primary: %{remaining: 100, limit: 100, reset_in_seconds: 1},
@@ -192,6 +223,69 @@ defmodule SymphonyElixir.StatusDashboardSnapshotTest do
        }}
 
     Snapshot.assert_dashboard_snapshot!("credits_unlimited", render_snapshot(snapshot_data, 42.0))
+  end
+
+  test "snapshot fixture: cost line with model" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{
+           input_tokens: 45_230,
+           output_tokens: 8_120,
+           cache_read_tokens: 31_500,
+           total_tokens: 53_350,
+           seconds_running: 754
+         },
+         cost_usd: 0.42,
+         model: "claude-opus-4-6",
+         rate_limits: nil
+       }}
+
+    Snapshot.assert_dashboard_snapshot!("cost_with_model", render_snapshot(snapshot_data, 145.0))
+  end
+
+  test "snapshot fixture: no cost line when cost is zero" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{
+           input_tokens: 1_000,
+           output_tokens: 200,
+           cache_read_tokens: 500,
+           total_tokens: 1_200,
+           seconds_running: 30
+         },
+         cost_usd: 0,
+         model: "claude-opus-4-6",
+         rate_limits: nil
+       }}
+
+    rendered = render_snapshot(snapshot_data, 10.0)
+    refute rendered =~ "Cost:"
+  end
+
+  test "snapshot fixture: no cost line when cost is nil" do
+    snapshot_data =
+      {:ok,
+       %{
+         running: [],
+         retrying: [],
+         agent_totals: %{
+           input_tokens: 1_000,
+           output_tokens: 200,
+           cache_read_tokens: 500,
+           total_tokens: 1_200,
+           seconds_running: 30
+         },
+         rate_limits: nil
+       }}
+
+    rendered = render_snapshot(snapshot_data, 10.0)
+    refute rendered =~ "Cost:"
   end
 
   defp render_snapshot(snapshot_data, tps) do
