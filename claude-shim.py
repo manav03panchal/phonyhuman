@@ -12,6 +12,7 @@ Usage in WORKFLOW.md:
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -126,6 +127,84 @@ def execute_linear_graphql(arguments):
 
 
 # ---------------------------------------------------------------------------
+# Rate limit / usage cap detection helpers
+# ---------------------------------------------------------------------------
+
+_RATE_LIMIT_PATTERNS = [
+    "hit your limit",
+    "hit the limit",
+    "rate limit",
+    "rate_limit",
+    "usage limit",
+    "try again later",
+    "try again in",
+    "too many requests",
+    "429",
+]
+
+_USAGE_CAP_PATTERNS = [
+    "usage cap",
+    "subscription limit",
+]
+
+_RETRY_AFTER_RE = re.compile(
+    r"try again in\s+(\d+)\s*(hour|minute|second|hr|min|sec)s?",
+    re.IGNORECASE,
+)
+
+
+def is_rate_limit(text):
+    """Return True if text contains rate-limit indicators."""
+    lower = text.lower()
+    return any(p in lower for p in _RATE_LIMIT_PATTERNS)
+
+
+def is_usage_cap(text):
+    """Return True if text indicates a subscription-level usage cap."""
+    lower = text.lower()
+    # Explicit usage-cap phrases
+    if any(p in lower for p in _USAGE_CAP_PATTERNS):
+        return True
+    # "hit your limit" combined with a reset-time reference
+    if ("hit your limit" in lower or "hit the limit" in lower):
+        if _RETRY_AFTER_RE.search(text) or "reset" in lower or "tomorrow" in lower:
+            return True
+    return False
+
+
+def parse_retry_after(text):
+    """Extract a retry-after duration in seconds from error text, or None."""
+    m = _RETRY_AFTER_RE.search(text)
+    if not m:
+        return None
+    value = int(m.group(1))
+    unit = m.group(2).lower()
+    if unit.startswith("hour") or unit == "hr":
+        return value * 3600
+    if unit.startswith("min"):
+        return value * 60
+    if unit.startswith("sec"):
+        return value
+    return None
+
+
+def classify_error(text):
+    """Classify error text into (error_type, is_global, retry_after).
+
+    Returns one of:
+        ("usage_cap", True, retry_after_seconds_or_None)
+        ("rate_limit", False, retry_after_seconds_or_None)
+        ("agent_error", False, None)
+    """
+    retry_after = parse_retry_after(text)
+    if is_usage_cap(text):
+        return "usage_cap", True, retry_after
+    if is_rate_limit(text):
+        return "rate_limit", False, retry_after
+    return "agent_error", False, None
+
+
+# ---------------------------------------------------------------------------
 # Claude Code runner
 # ---------------------------------------------------------------------------
 
@@ -137,6 +216,7 @@ class ClaudeRunner:
         self.prompt = prompt
         self.on_event = on_event  # callback(event_dict)
         self.proc = None
+        self.errors_seen = []
 
     def run(self):
         """Spawn claude CLI, stream events, return (success, result_or_error)."""
@@ -193,6 +273,10 @@ class ClaudeRunner:
 
             event_type = event.get("type", "")
 
+            # Track error events during streaming
+            if event_type == "error":
+                self.errors_seen.append(event)
+
             # Capture the final result message
             if event_type == "result":
                 last_result = event
@@ -208,6 +292,7 @@ class ClaudeRunner:
 
         t.join(timeout=5)
         rc = self.proc.wait()
+        self.stderr_lines = stderr_lines
 
         if rc != 0:
             err_text = "\n".join(stderr_lines[-10:]) if stderr_lines else f"exit code {rc}"
@@ -294,11 +379,51 @@ class Session:
             self.current_runner = None
 
             if success:
-                log("turn completed successfully")
-                send_notification("turn/completed", {
-                    "turnId": turn_id,
-                    "threadId": self.thread_id,
-                })
+                # Check if the result indicates an error despite exit code 0
+                result_is_error = False
+                error_text = ""
+
+                if isinstance(result, dict) and result.get("is_error", False):
+                    result_is_error = True
+                    error_text = result.get("result", "") or str(result)
+
+                # Check streaming errors for rate-limit signals
+                if not result_is_error and runner.errors_seen:
+                    combined = " ".join(
+                        e.get("error", {}).get("message", "") if isinstance(e.get("error"), dict)
+                        else str(e.get("error", ""))
+                        for e in runner.errors_seen
+                    )
+                    if is_rate_limit(combined) or is_usage_cap(combined):
+                        result_is_error = True
+                        error_text = combined
+
+                # Edge case: last_result is None but stderr has limit text
+                if not result_is_error and result == {"type": "result", "result": "completed"}:
+                    stderr_text = "\n".join(getattr(runner, "stderr_lines", []))
+                    if stderr_text and (is_rate_limit(stderr_text) or is_usage_cap(stderr_text)):
+                        result_is_error = True
+                        error_text = stderr_text
+
+                if result_is_error:
+                    error_type, is_global, retry_after = classify_error(error_text)
+                    log_error(f"turn result has error (type={error_type}): {error_text[:200]}")
+                    fail_params = {
+                        "turnId": turn_id,
+                        "threadId": self.thread_id,
+                        "error": error_text,
+                        "error_type": error_type,
+                        "is_global": is_global,
+                    }
+                    if retry_after is not None:
+                        fail_params["retry_after"] = retry_after
+                    send_notification("turn/failed", fail_params)
+                else:
+                    log("turn completed successfully")
+                    send_notification("turn/completed", {
+                        "turnId": turn_id,
+                        "threadId": self.thread_id,
+                    })
             else:
                 log_error(f"turn failed: {result}")
                 send_notification("turn/failed", {
