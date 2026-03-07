@@ -9,8 +9,7 @@ api_key = ""                  # Linear personal API token (lin_api_...)
                               # Can also use LINEAR_API_KEY env var
 project_slug = ""             # From the project URL: linear.app/team/project/<SLUG>
 
-# Optional: customize which Linear states Symphony watches
-# active_states = ["Todo", "In Progress", "Merging", "Rework"]
+active_states = ["Todo", "In Progress", "Merging", "Rework"]
 # terminal_states = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
 
 [repo]

@@ -378,7 +378,7 @@ api_key = ""                  # Linear personal API token (lin_api_...)
 project_slug = ""             # From the project URL: linear.app/team/project/<SLUG>
 
 # Optional: customize which Linear states phonyhuman watches
-# active_states = ["Todo", "In Progress", "Merging", "Rework"]
+active_states = ["Todo", "In Progress", "Merging", "Rework"]
 # terminal_states = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
 
 [repo]
@@ -578,7 +578,7 @@ poll_ms      = agent.get("poll_interval_ms", 10000)
 ws_root      = workspace.get("root", "~/symphony-workspaces")
 port         = server.get("port", None)
 
-active_states   = linear.get("active_states", ["Todo", "In Progress"])
+active_states   = linear.get("active_states", ["Todo", "In Progress", "Merging", "Rework"])
 terminal_states = linear.get("terminal_states", ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
 
 errors = []
