@@ -787,7 +787,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       template_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "workspaces")
-      codex_binary = Path.join(test_root, "fake-codex")
+      agent_binary = Path.join(test_root, "fake-codex")
 
       File.mkdir_p!(template_repo)
       File.mkdir_p!(workspace_root)
@@ -798,7 +798,7 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", template_repo, "add", "README.md"])
       System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
 
-      File.write!(codex_binary, """
+      File.write!(agent_binary, """
       #!/bin/sh
       count=0
       while IFS= read -r line; do
@@ -823,12 +823,12 @@ defmodule SymphonyElixir.CoreTest do
       done
       """)
 
-      File.chmod!(codex_binary, 0o755)
+      File.chmod!(agent_binary, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        agent_command: "#{codex_binary} app-server"
+        agent_command: "#{agent_binary} app-server"
       )
 
       issue = %Issue{
@@ -871,7 +871,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       template_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "workspaces")
-      codex_binary = Path.join(test_root, "fake-codex")
+      agent_binary = Path.join(test_root, "fake-codex")
 
       File.mkdir_p!(template_repo)
       File.write!(Path.join(template_repo, "README.md"), "# test")
@@ -882,7 +882,7 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
 
       File.write!(
-        codex_binary,
+        agent_binary,
         """
         #!/bin/sh
         count=0
@@ -908,12 +908,12 @@ defmodule SymphonyElixir.CoreTest do
         """
       )
 
-      File.chmod!(codex_binary, 0o755)
+      File.chmod!(agent_binary, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        agent_command: "#{codex_binary} app-server"
+        agent_command: "#{agent_binary} app-server"
       )
 
       issue = %Issue{
@@ -959,7 +959,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       template_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "workspaces")
-      codex_binary = Path.join(test_root, "fake-codex")
+      agent_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
 
       File.mkdir_p!(template_repo)
@@ -970,7 +970,7 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", template_repo, "add", "README.md"])
       System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
 
-      File.write!(codex_binary, """
+      File.write!(agent_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex.trace}"
       run_id="$(date +%s%N)-$$"
@@ -1001,7 +1001,7 @@ defmodule SymphonyElixir.CoreTest do
       done
       """)
 
-      File.chmod!(codex_binary, 0o755)
+      File.chmod!(agent_binary, 0o755)
       System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
 
       on_exit(fn -> System.delete_env("SYMP_TEST_CODEx_TRACE") end)
@@ -1009,7 +1009,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        agent_command: "#{codex_binary} app-server",
+        agent_command: "#{agent_binary} app-server",
         max_turns: 3
       )
 
@@ -1090,7 +1090,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       template_repo = Path.join(test_root, "source")
       workspace_root = Path.join(test_root, "workspaces")
-      codex_binary = Path.join(test_root, "fake-codex")
+      agent_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
 
       File.mkdir_p!(template_repo)
@@ -1101,7 +1101,7 @@ defmodule SymphonyElixir.CoreTest do
       System.cmd("git", ["-C", template_repo, "add", "README.md"])
       System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
 
-      File.write!(codex_binary, """
+      File.write!(agent_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex.trace}"
       printf 'RUN\\n' >> "$trace_file"
@@ -1131,7 +1131,7 @@ defmodule SymphonyElixir.CoreTest do
       done
       """)
 
-      File.chmod!(codex_binary, 0o755)
+      File.chmod!(agent_binary, 0o755)
       System.put_env("SYMP_TEST_CODEx_TRACE", trace_file)
 
       on_exit(fn -> System.delete_env("SYMP_TEST_CODEx_TRACE") end)
@@ -1139,7 +1139,7 @@ defmodule SymphonyElixir.CoreTest do
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
-        agent_command: "#{codex_binary} app-server",
+        agent_command: "#{agent_binary} app-server",
         max_turns: 2
       )
 
@@ -1187,7 +1187,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       workspace_root = Path.join(test_root, "workspaces")
       workspace = Path.join(workspace_root, "MT-77")
-      codex_binary = Path.join(test_root, "fake-codex")
+      agent_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-args.trace")
       previous_trace = System.get_env("SYMP_TEST_CODex_TRACE")
 
@@ -1202,7 +1202,7 @@ defmodule SymphonyElixir.CoreTest do
       System.put_env("SYMP_TEST_CODex_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
-      File.write!(codex_binary, """
+      File.write!(agent_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODex_TRACE:-/tmp/codex-args.trace}"
       count=0
@@ -1233,11 +1233,11 @@ defmodule SymphonyElixir.CoreTest do
       done
       """)
 
-      File.chmod!(codex_binary, 0o755)
+      File.chmod!(agent_binary, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        agent_command: "#{codex_binary} app-server"
+        agent_command: "#{agent_binary} app-server"
       )
 
       issue = %Issue{
@@ -1332,7 +1332,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       workspace_root = Path.join(test_root, "workspaces")
       workspace = Path.join(workspace_root, "MT-88")
-      codex_binary = Path.join(test_root, "fake-codex")
+      agent_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-custom-args.trace")
       previous_trace = System.get_env("SYMP_TEST_CODex_TRACE")
 
@@ -1347,7 +1347,7 @@ defmodule SymphonyElixir.CoreTest do
       System.put_env("SYMP_TEST_CODex_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
-      File.write!(codex_binary, """
+      File.write!(agent_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODex_TRACE:-/tmp/codex-custom-args.trace}"
       count=0
@@ -1376,11 +1376,11 @@ defmodule SymphonyElixir.CoreTest do
       done
       """)
 
-      File.chmod!(codex_binary, 0o755)
+      File.chmod!(agent_binary, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        agent_command: "#{codex_binary} --model gpt-5.3-codex app-server"
+        agent_command: "#{agent_binary} --model gpt-5.3-codex app-server"
       )
 
       issue = %Issue{
@@ -1417,7 +1417,7 @@ defmodule SymphonyElixir.CoreTest do
     try do
       workspace_root = Path.join(test_root, "workspaces")
       workspace = Path.join(workspace_root, "MT-99")
-      codex_binary = Path.join(test_root, "fake-codex")
+      agent_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex-policy-overrides.trace")
       previous_trace = System.get_env("SYMP_TEST_CODex_TRACE")
 
@@ -1432,7 +1432,7 @@ defmodule SymphonyElixir.CoreTest do
       System.put_env("SYMP_TEST_CODex_TRACE", trace_file)
       File.mkdir_p!(workspace)
 
-      File.write!(codex_binary, """
+      File.write!(agent_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODex_TRACE:-/tmp/codex-policy-overrides.trace}"
       count=0
@@ -1462,11 +1462,11 @@ defmodule SymphonyElixir.CoreTest do
       done
       """)
 
-      File.chmod!(codex_binary, 0o755)
+      File.chmod!(agent_binary, 0o755)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        agent_command: "#{codex_binary} app-server",
+        agent_command: "#{agent_binary} app-server",
         agent_approval_policy: "on-request",
         agent_thread_sandbox: "workspace-write",
         agent_turn_sandbox_policy: %{
@@ -1672,10 +1672,10 @@ defmodule SymphonyElixir.CoreTest do
       agent_last_reported_input_tokens: 0,
       agent_last_reported_output_tokens: 0,
       agent_last_reported_total_tokens: 0,
-      codex_cache_read_tokens: 0,
-      codex_cache_creation_tokens: 0,
-      codex_cost_usd: 0.0,
-      codex_model: nil,
+      agent_cache_read_tokens: 0,
+      agent_cache_creation_tokens: 0,
+      agent_cost_usd: 0.0,
+      agent_model: nil,
       turn_count: 0,
       agent_app_server_pid: nil
     }
@@ -1694,9 +1694,9 @@ defmodule SymphonyElixir.CoreTest do
 
     {entry1, delta1} = Orchestrator.integrate_agent_update_for_test(running_entry, update1)
 
-    assert entry1.codex_cost_usd == 0.01
-    assert entry1.codex_model == "claude-sonnet-4-20250514"
-    assert entry1.codex_cache_read_tokens == 80
+    assert entry1.agent_cost_usd == 0.01
+    assert entry1.agent_model == "claude-sonnet-4-20250514"
+    assert entry1.agent_cache_read_tokens == 80
     assert entry1.agent_input_tokens == 100
     assert entry1.agent_output_tokens == 50
     assert delta1.cost_usd == 0.01
@@ -1716,9 +1716,9 @@ defmodule SymphonyElixir.CoreTest do
 
     {entry2, delta2} = Orchestrator.integrate_agent_update_for_test(entry1, update2)
 
-    assert entry2.codex_cost_usd == 0.035
-    assert entry2.codex_cache_read_tokens == 120
-    assert entry2.codex_cache_creation_tokens == 15
+    assert entry2.agent_cost_usd == 0.035
+    assert entry2.agent_cache_read_tokens == 120
+    assert entry2.agent_cache_creation_tokens == 15
     assert entry2.agent_input_tokens == 250
     assert entry2.agent_output_tokens == 120
     assert delta2.cost_usd == 0.025

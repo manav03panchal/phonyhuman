@@ -824,7 +824,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
     workspace_root = Path.join("/tmp", "symphony-workspace-root")
     api_key = "resolved-secret"
-    codex_bin = Path.join(["~", "bin", "codex"])
+    agent_bin = Path.join(["~", "bin", "codex"])
 
     previous_workspace_root = System.get_env(workspace_env_var)
     previous_api_key = System.get_env(api_key_env_var)
@@ -840,12 +840,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: "$#{api_key_env_var}",
       workspace_root: "$#{workspace_env_var}",
-      agent_command: "#{codex_bin} app-server"
+      agent_command: "#{agent_bin} app-server"
     )
 
     assert Config.linear_api_token() == api_key
     assert Config.workspace_root() == Path.expand(workspace_root)
-    assert Config.agent_command() == "#{codex_bin} app-server"
+    assert Config.agent_command() == "#{agent_bin} app-server"
   end
 
   test "config no longer resolves legacy env: references" do
