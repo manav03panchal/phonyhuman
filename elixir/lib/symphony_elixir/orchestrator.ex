@@ -18,7 +18,11 @@ defmodule SymphonyElixir.Orchestrator do
     input_tokens: 0,
     output_tokens: 0,
     total_tokens: 0,
-    seconds_running: 0
+    seconds_running: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    cost_usd: 0.0,
+    model: nil
   }
 
   defmodule State do
@@ -653,6 +657,10 @@ defmodule SymphonyElixir.Orchestrator do
             agent_last_reported_input_tokens: 0,
             agent_last_reported_output_tokens: 0,
             agent_last_reported_total_tokens: 0,
+            codex_cache_read_tokens: 0,
+            codex_cache_creation_tokens: 0,
+            codex_cost_usd: 0.0,
+            codex_model: nil,
             turn_count: 0,
             retry_attempt: normalize_retry_attempt(attempt),
             started_at: DateTime.utc_now()
@@ -961,6 +969,10 @@ defmodule SymphonyElixir.Orchestrator do
           agent_input_tokens: metadata.agent_input_tokens,
           agent_output_tokens: metadata.agent_output_tokens,
           agent_total_tokens: metadata.agent_total_tokens,
+          codex_cache_read_tokens: Map.get(metadata, :codex_cache_read_tokens, 0),
+          codex_cache_creation_tokens: Map.get(metadata, :codex_cache_creation_tokens, 0),
+          codex_cost_usd: Map.get(metadata, :codex_cost_usd, 0.0),
+          codex_model: Map.get(metadata, :codex_model),
           turn_count: Map.get(metadata, :turn_count, 0),
           started_at: metadata.started_at,
           last_agent_timestamp: metadata.last_agent_timestamp,
@@ -1036,6 +1048,12 @@ defmodule SymphonyElixir.Orchestrator do
     last_reported_total = Map.get(running_entry, :agent_last_reported_total_tokens, 0)
     turn_count = Map.get(running_entry, :turn_count, 0)
 
+    codex_cache_read = Map.get(running_entry, :codex_cache_read_tokens, 0)
+    codex_cache_creation = Map.get(running_entry, :codex_cache_creation_tokens, 0)
+    codex_cost_usd = Map.get(running_entry, :codex_cost_usd, 0.0)
+
+    delta_model = Map.get(token_delta, :model)
+
     {
       Map.merge(running_entry, %{
         last_agent_timestamp: timestamp,
@@ -1049,7 +1067,12 @@ defmodule SymphonyElixir.Orchestrator do
         agent_last_reported_input_tokens: max(last_reported_input, token_delta.input_reported),
         agent_last_reported_output_tokens: max(last_reported_output, token_delta.output_reported),
         agent_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
-        turn_count: turn_count_for_update(turn_count, running_entry.session_id, update)
+        turn_count: turn_count_for_update(turn_count, running_entry.session_id, update),
+        codex_cache_read_tokens: codex_cache_read + Map.get(token_delta, :cache_read_tokens, 0),
+        codex_cache_creation_tokens:
+          codex_cache_creation + Map.get(token_delta, :cache_creation_tokens, 0),
+        codex_cost_usd: codex_cost_usd + Map.get(token_delta, :cost_usd, 0.0),
+        codex_model: if(delta_model, do: delta_model, else: Map.get(running_entry, :codex_model))
       }),
       token_delta
     }
@@ -1129,7 +1152,11 @@ defmodule SymphonyElixir.Orchestrator do
           input_tokens: 0,
           output_tokens: 0,
           total_tokens: 0,
-          seconds_running: runtime_seconds
+          seconds_running: runtime_seconds,
+          cache_read_tokens: 0,
+          cache_creation_tokens: 0,
+          cost_usd: 0.0,
+          model: nil
         }
       )
 
@@ -1312,6 +1339,18 @@ defmodule SymphonyElixir.Orchestrator do
   @spec parse_retry_after_for_test(map()) :: integer() | nil
   def parse_retry_after_for_test(update), do: parse_retry_after(update)
 
+  @doc false
+  def extract_token_delta_for_test(running_entry, update),
+    do: extract_token_delta(running_entry, update)
+
+  @doc false
+  def apply_token_delta_for_test(agent_totals, token_delta),
+    do: apply_token_delta(agent_totals, token_delta)
+
+  @doc false
+  def integrate_agent_update_for_test(running_entry, update),
+    do: integrate_agent_update(running_entry, update)
+
   defp parse_retry_after(update) when is_map(update) do
     raw =
       Map.get(update, :retry_after) ||
@@ -1466,11 +1505,28 @@ defmodule SymphonyElixir.Orchestrator do
     seconds_running =
       Map.get(agent_totals, :seconds_running, 0) + Map.get(token_delta, :seconds_running, 0)
 
+    cache_read_tokens =
+      Map.get(agent_totals, :cache_read_tokens, 0) + Map.get(token_delta, :cache_read_tokens, 0)
+
+    cache_creation_tokens =
+      Map.get(agent_totals, :cache_creation_tokens, 0) +
+        Map.get(token_delta, :cache_creation_tokens, 0)
+
+    cost_usd =
+      Map.get(agent_totals, :cost_usd, 0.0) + Map.get(token_delta, :cost_usd, 0.0)
+
+    delta_model = Map.get(token_delta, :model)
+    model = if delta_model, do: delta_model, else: Map.get(agent_totals, :model)
+
     %{
       input_tokens: max(0, input_tokens),
       output_tokens: max(0, output_tokens),
       total_tokens: max(0, total_tokens),
-      seconds_running: max(0, seconds_running)
+      seconds_running: max(0, seconds_running),
+      cache_read_tokens: max(0, cache_read_tokens),
+      cache_creation_tokens: max(0, cache_creation_tokens),
+      cost_usd: max(0.0, cost_usd),
+      model: model
     }
   end
 
@@ -1506,7 +1562,11 @@ defmodule SymphonyElixir.Orchestrator do
         total_tokens: total.delta,
         input_reported: input.reported,
         output_reported: output.reported,
-        total_reported: total.reported
+        total_reported: total.reported,
+        cache_read_tokens: extract_cache_read_tokens(usage),
+        cache_creation_tokens: extract_cache_creation_tokens(usage),
+        cost_usd: extract_cost_usd(update),
+        model: extract_model(update)
       }
     end)
   end
@@ -1528,6 +1588,69 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
+  defp extract_cache_read_tokens(usage) when is_map(usage) do
+    value =
+      Map.get(usage, "cache_read_input_tokens") ||
+        Map.get(usage, :cache_read_input_tokens) ||
+        Map.get(usage, "cache_read_tokens") ||
+        Map.get(usage, :cache_read_tokens)
+
+    if is_integer(value) and value >= 0, do: value, else: 0
+  end
+
+  defp extract_cache_read_tokens(_usage), do: 0
+
+  defp extract_cache_creation_tokens(usage) when is_map(usage) do
+    value =
+      Map.get(usage, "cache_creation_input_tokens") ||
+        Map.get(usage, :cache_creation_input_tokens) ||
+        Map.get(usage, "cache_creation_tokens") ||
+        Map.get(usage, :cache_creation_tokens)
+
+    if is_integer(value) and value >= 0, do: value, else: 0
+  end
+
+  defp extract_cache_creation_tokens(_usage), do: 0
+
+  defp extract_cost_usd(update) when is_map(update) do
+    value =
+      Map.get(update, :cost_usd) ||
+        Map.get(update, "cost_usd") ||
+        get_in_fleet(update, [:usage, :cost_usd]) ||
+        get_in_fleet(update, [:usage, "cost_usd"]) ||
+        get_in_fleet(update, ["usage", "cost_usd"]) ||
+        get_in_fleet(update, [:payload, :cost_usd]) ||
+        get_in_fleet(update, [:payload, "cost_usd"]) ||
+        get_in_fleet(update, ["payload", "cost_usd"]) ||
+        get_in_fleet(update, [:payload, :params, :cost_usd]) ||
+        get_in_fleet(update, [:payload, "params", "cost_usd"]) ||
+        get_in_fleet(update, ["payload", "params", "cost_usd"])
+
+    cond do
+      is_float(value) and value >= 0.0 -> value
+      is_integer(value) and value >= 0 -> value / 1
+      true -> 0.0
+    end
+  end
+
+  defp extract_cost_usd(_update), do: 0.0
+
+  defp extract_model(update) when is_map(update) do
+    Map.get(update, :model) ||
+      Map.get(update, "model") ||
+      get_in_fleet(update, [:usage, :model]) ||
+      get_in_fleet(update, [:usage, "model"]) ||
+      get_in_fleet(update, ["usage", "model"]) ||
+      get_in_fleet(update, [:payload, :model]) ||
+      get_in_fleet(update, [:payload, "model"]) ||
+      get_in_fleet(update, ["payload", "model"]) ||
+      get_in_fleet(update, [:payload, :params, :model]) ||
+      get_in_fleet(update, [:payload, "params", "model"]) ||
+      get_in_fleet(update, ["payload", "params", "model"])
+  end
+
+  defp extract_model(_update), do: nil
+
   defp extract_token_usage(update) do
     payloads = [
       update[:usage],
@@ -1540,6 +1663,7 @@ defmodule SymphonyElixir.Orchestrator do
 
     Enum.find_value(payloads, &absolute_token_usage_from_payload/1) ||
       Enum.find_value(payloads, &turn_completed_usage_from_payload/1) ||
+      Enum.find_value(payloads, &flat_token_usage_from_payload/1) ||
       %{}
   end
 
@@ -1584,6 +1708,12 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp turn_completed_usage_from_payload(_payload), do: nil
+
+  defp flat_token_usage_from_payload(payload) when is_map(payload) do
+    if integer_token_map?(payload), do: payload
+  end
+
+  defp flat_token_usage_from_payload(_payload), do: nil
 
   defp rate_limits_from_payload(payload) when is_map(payload) do
     direct = Map.get(payload, "rate_limits") || Map.get(payload, :rate_limits)

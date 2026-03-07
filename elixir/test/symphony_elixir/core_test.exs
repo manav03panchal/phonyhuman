@@ -1527,4 +1527,231 @@ defmodule SymphonyElixir.CoreTest do
       File.rm_rf(test_root)
     end
   end
+
+  # --- Claude Code flat usage shape tests ---
+
+  test "extract_token_delta handles flat Claude Code usage shape" do
+    running_entry = %{
+      agent_last_reported_input_tokens: 0,
+      agent_last_reported_output_tokens: 0,
+      agent_last_reported_total_tokens: 0
+    }
+
+    update = %{
+      event: :turn_completed,
+      timestamp: DateTime.utc_now(),
+      usage: %{"input_tokens" => 100, "output_tokens" => 50}
+    }
+
+    delta = Orchestrator.extract_token_delta_for_test(running_entry, update)
+
+    assert delta.input_tokens == 100
+    assert delta.output_tokens == 50
+    assert delta.total_tokens == 0
+    assert delta.cache_read_tokens == 0
+    assert delta.cache_creation_tokens == 0
+    assert delta.cost_usd == 0.0
+    assert delta.model == nil
+  end
+
+  test "extract_token_delta extracts cache fields from flat usage" do
+    running_entry = %{
+      agent_last_reported_input_tokens: 0,
+      agent_last_reported_output_tokens: 0,
+      agent_last_reported_total_tokens: 0
+    }
+
+    update = %{
+      event: :turn_completed,
+      timestamp: DateTime.utc_now(),
+      usage: %{
+        "input_tokens" => 200,
+        "output_tokens" => 80,
+        "cache_read_input_tokens" => 150,
+        "cache_creation_input_tokens" => 30
+      }
+    }
+
+    delta = Orchestrator.extract_token_delta_for_test(running_entry, update)
+
+    assert delta.input_tokens == 200
+    assert delta.output_tokens == 80
+    assert delta.cache_read_tokens == 150
+    assert delta.cache_creation_tokens == 30
+  end
+
+  test "extract_token_delta extracts cost_usd and model from update" do
+    running_entry = %{
+      agent_last_reported_input_tokens: 0,
+      agent_last_reported_output_tokens: 0,
+      agent_last_reported_total_tokens: 0
+    }
+
+    update = %{
+      event: :turn_completed,
+      timestamp: DateTime.utc_now(),
+      usage: %{"input_tokens" => 100, "output_tokens" => 50},
+      cost_usd: 0.0035,
+      model: "claude-sonnet-4-20250514"
+    }
+
+    delta = Orchestrator.extract_token_delta_for_test(running_entry, update)
+
+    assert delta.cost_usd == 0.0035
+    assert delta.model == "claude-sonnet-4-20250514"
+  end
+
+  test "apply_token_delta accumulates cache, cost, and model fields" do
+    totals = %{
+      input_tokens: 100,
+      output_tokens: 50,
+      total_tokens: 150,
+      seconds_running: 10,
+      cache_read_tokens: 20,
+      cache_creation_tokens: 5,
+      cost_usd: 0.01,
+      model: "claude-sonnet-4-20250514"
+    }
+
+    delta = %{
+      input_tokens: 200,
+      output_tokens: 80,
+      total_tokens: 280,
+      seconds_running: 0,
+      cache_read_tokens: 50,
+      cache_creation_tokens: 10,
+      cost_usd: 0.02,
+      model: nil
+    }
+
+    result = Orchestrator.apply_token_delta_for_test(totals, delta)
+
+    assert result.input_tokens == 300
+    assert result.output_tokens == 130
+    assert result.total_tokens == 430
+    assert result.cache_read_tokens == 70
+    assert result.cache_creation_tokens == 15
+    assert result.cost_usd == 0.03
+    # model carries forward when delta model is nil
+    assert result.model == "claude-sonnet-4-20250514"
+  end
+
+  test "apply_token_delta updates model when delta has non-nil model" do
+    totals = %{
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      seconds_running: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      cost_usd: 0.0,
+      model: "claude-sonnet-4-20250514"
+    }
+
+    delta = %{
+      input_tokens: 100,
+      output_tokens: 50,
+      total_tokens: 150,
+      seconds_running: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      cost_usd: 0.005,
+      model: "claude-opus-4-20250514"
+    }
+
+    result = Orchestrator.apply_token_delta_for_test(totals, delta)
+    assert result.model == "claude-opus-4-20250514"
+  end
+
+  test "cost_usd accumulation across multiple updates via integrate_agent_update" do
+    running_entry = %{
+      session_id: "session-1",
+      agent_input_tokens: 0,
+      agent_output_tokens: 0,
+      agent_total_tokens: 0,
+      agent_last_reported_input_tokens: 0,
+      agent_last_reported_output_tokens: 0,
+      agent_last_reported_total_tokens: 0,
+      codex_cache_read_tokens: 0,
+      codex_cache_creation_tokens: 0,
+      codex_cost_usd: 0.0,
+      codex_model: nil,
+      turn_count: 0,
+      agent_app_server_pid: nil
+    }
+
+    update1 = %{
+      event: :turn_completed,
+      timestamp: DateTime.utc_now(),
+      usage: %{
+        "input_tokens" => 100,
+        "output_tokens" => 50,
+        "cache_read_input_tokens" => 80
+      },
+      cost_usd: 0.01,
+      model: "claude-sonnet-4-20250514"
+    }
+
+    {entry1, delta1} = Orchestrator.integrate_agent_update_for_test(running_entry, update1)
+
+    assert entry1.codex_cost_usd == 0.01
+    assert entry1.codex_model == "claude-sonnet-4-20250514"
+    assert entry1.codex_cache_read_tokens == 80
+    assert entry1.agent_input_tokens == 100
+    assert entry1.agent_output_tokens == 50
+    assert delta1.cost_usd == 0.01
+
+    update2 = %{
+      event: :turn_completed,
+      timestamp: DateTime.utc_now(),
+      usage: %{
+        "input_tokens" => 250,
+        "output_tokens" => 120,
+        "cache_read_input_tokens" => 40,
+        "cache_creation_input_tokens" => 15
+      },
+      cost_usd: 0.025,
+      model: "claude-sonnet-4-20250514"
+    }
+
+    {entry2, delta2} = Orchestrator.integrate_agent_update_for_test(entry1, update2)
+
+    assert entry2.codex_cost_usd == 0.035
+    assert entry2.codex_cache_read_tokens == 120
+    assert entry2.codex_cache_creation_tokens == 15
+    assert entry2.agent_input_tokens == 250
+    assert entry2.agent_output_tokens == 120
+    assert delta2.cost_usd == 0.025
+  end
+
+  test "extract_token_delta still works with Codex nested usage shape" do
+    running_entry = %{
+      agent_last_reported_input_tokens: 0,
+      agent_last_reported_output_tokens: 0,
+      agent_last_reported_total_tokens: 0
+    }
+
+    update = %{
+      event: :turn_completed,
+      timestamp: DateTime.utc_now(),
+      payload: %{
+        "method" => "turn/completed",
+        "params" => %{
+          "tokenUsage" => %{
+            "total" => %{
+              "input_tokens" => 500,
+              "output_tokens" => 200,
+              "total_tokens" => 700
+            }
+          }
+        }
+      }
+    }
+
+    delta = Orchestrator.extract_token_delta_for_test(running_entry, update)
+
+    assert delta.input_tokens == 500
+    assert delta.output_tokens == 200
+    assert delta.total_tokens == 700
+  end
 end
