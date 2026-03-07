@@ -88,7 +88,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     case start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
       {:ok, turn_id} ->
         session_id = "#{thread_id}-#{turn_id}"
-        Logger.info("Codex session started for #{issue_context(issue)} session_id=#{session_id}")
+        Logger.info("Agent session started for #{issue_context(issue)} session_id=#{session_id}")
 
         emit_message(
           on_message,
@@ -103,7 +103,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
         case await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
           {:ok, result} ->
-            Logger.info("Codex session completed for #{issue_context(issue)} session_id=#{session_id}")
+            Logger.info("Agent session completed for #{issue_context(issue)} session_id=#{session_id}")
 
             {:ok,
              %{
@@ -114,7 +114,7 @@ defmodule SymphonyElixir.Codex.AppServer do
              }}
 
           {:error, reason} ->
-            Logger.warning("Codex session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
+            Logger.warning("Agent session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
 
             emit_message(
               on_message,
@@ -130,7 +130,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         end
 
       {:error, reason} ->
-        Logger.error("Codex session failed for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.error("Agent session failed for #{issue_context(issue)}: #{inspect(reason)}")
         emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
         {:error, reason}
     end
@@ -172,7 +172,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Config.codex_command())],
+            args: [~c"-lc", String.to_charlist(Config.agent_command())],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -217,7 +217,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp session_policies(workspace) do
-    Config.codex_runtime_settings(workspace)
+    Config.agent_runtime_settings(workspace)
   end
 
   defp do_start_session(port, workspace, session_policies) do
@@ -277,7 +277,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
-    receive_loop(port, on_message, Config.codex_turn_timeout_ms(), "", tool_executor, auto_approve_requests)
+    receive_loop(port, on_message, Config.agent_turn_timeout_ms(), "", tool_executor, auto_approve_requests)
   end
 
   defp receive_loop(port, on_message, timeout_ms, pending_line, tool_executor, auto_approve_requests) do
@@ -820,7 +820,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp await_response(port, request_id) do
-    with_timeout_response(port, request_id, Config.codex_read_timeout_ms(), "")
+    with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "")
   end
 
   defp with_timeout_response(port, request_id, timeout_ms, pending_line) do

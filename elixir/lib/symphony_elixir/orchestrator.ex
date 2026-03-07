@@ -132,7 +132,7 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   def handle_info(
-        {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
+        {:agent_worker_update, issue_id, %{event: _, timestamp: _} = update},
         %{running: running} = state
       ) do
     case Map.get(running, issue_id) do
@@ -140,19 +140,19 @@ defmodule SymphonyElixir.Orchestrator do
         {:noreply, state}
 
       running_entry ->
-        {updated_running_entry, token_delta} = integrate_codex_update(running_entry, update)
+        {updated_running_entry, token_delta} = integrate_agent_update(running_entry, update)
 
         state =
           state
-          |> apply_codex_token_delta(token_delta)
-          |> apply_codex_rate_limits(update)
+          |> apply_agent_token_delta(token_delta)
+          |> apply_agent_rate_limits(update)
 
         notify_dashboard()
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
     end
   end
 
-  def handle_info({:codex_worker_update, _issue_id, _update}, state), do: {:noreply, state}
+  def handle_info({:agent_worker_update, _issue_id, _update}, state), do: {:noreply, state}
 
   def handle_info({:retry_issue, issue_id}, state) do
     result =
@@ -196,20 +196,20 @@ defmodule SymphonyElixir.Orchestrator do
 
         state
 
-      {:error, :missing_codex_command} ->
-        Logger.error("Codex command missing in WORKFLOW.md")
+      {:error, :missing_agent_command} ->
+        Logger.error("Agent command missing in WORKFLOW.md")
         state
 
-      {:error, {:invalid_codex_approval_policy, value}} ->
-        Logger.error("Invalid codex.approval_policy in WORKFLOW.md: #{inspect(value)}")
+      {:error, {:invalid_agent_approval_policy, value}} ->
+        Logger.error("Invalid agent.approval_policy in WORKFLOW.md: #{inspect(value)}")
         state
 
-      {:error, {:invalid_codex_thread_sandbox, value}} ->
-        Logger.error("Invalid codex.thread_sandbox in WORKFLOW.md: #{inspect(value)}")
+      {:error, {:invalid_agent_thread_sandbox, value}} ->
+        Logger.error("Invalid agent.thread_sandbox in WORKFLOW.md: #{inspect(value)}")
         state
 
-      {:error, {:invalid_codex_turn_sandbox_policy, reason}} ->
-        Logger.error("Invalid codex.turn_sandbox_policy in WORKFLOW.md: #{inspect(reason)}")
+      {:error, {:invalid_agent_turn_sandbox_policy, reason}} ->
+        Logger.error("Invalid agent.turn_sandbox_policy in WORKFLOW.md: #{inspect(reason)}")
         state
 
       {:error, {:missing_workflow_file, path, reason}} ->
@@ -365,7 +365,7 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp reconcile_stalled_running_issues(%State{} = state) do
-    timeout_ms = Config.codex_stall_timeout_ms()
+    timeout_ms = Config.agent_stall_timeout_ms()
 
     cond do
       timeout_ms <= 0 ->
@@ -984,7 +984,7 @@ defmodule SymphonyElixir.Orchestrator do
      }, state}
   end
 
-  defp integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do
+  defp integrate_agent_update(running_entry, %{event: event, timestamp: timestamp} = update) do
     token_delta = extract_token_delta(running_entry, update)
     codex_input_tokens = Map.get(running_entry, :codex_input_tokens, 0)
     codex_output_tokens = Map.get(running_entry, :codex_output_tokens, 0)
@@ -1114,7 +1114,7 @@ defmodule SymphonyElixir.Orchestrator do
     available_slots(state) > 0 and state_slots_available?(issue, state.running)
   end
 
-  defp apply_codex_token_delta(
+  defp apply_agent_token_delta(
          %{codex_totals: codex_totals} = state,
          %{input_tokens: input, output_tokens: output, total_tokens: total} = token_delta
        )
@@ -1122,9 +1122,9 @@ defmodule SymphonyElixir.Orchestrator do
     %{state | codex_totals: apply_token_delta(codex_totals, token_delta)}
   end
 
-  defp apply_codex_token_delta(state, _token_delta), do: state
+  defp apply_agent_token_delta(state, _token_delta), do: state
 
-  defp apply_codex_rate_limits(%State{} = state, update) when is_map(update) do
+  defp apply_agent_rate_limits(%State{} = state, update) when is_map(update) do
     case extract_rate_limits(update) do
       %{} = rate_limits ->
         %{state | codex_rate_limits: rate_limits}
@@ -1134,7 +1134,7 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp apply_codex_rate_limits(state, _update), do: state
+  defp apply_agent_rate_limits(state, _update), do: state
 
   defp apply_token_delta(codex_totals, token_delta) do
     input_tokens = Map.get(codex_totals, :input_tokens, 0) + token_delta.input_tokens

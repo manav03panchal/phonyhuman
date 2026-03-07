@@ -30,18 +30,18 @@ defmodule SymphonyElixir.Config do
   @default_max_concurrent_agents 10
   @default_agent_max_turns 20
   @default_max_retry_backoff_ms 300_000
-  @default_codex_command "codex app-server"
-  @default_codex_turn_timeout_ms 3_600_000
-  @default_codex_read_timeout_ms 5_000
-  @default_codex_stall_timeout_ms 300_000
-  @default_codex_approval_policy %{
+  @default_agent_command "codex app-server"
+  @default_agent_turn_timeout_ms 3_600_000
+  @default_agent_read_timeout_ms 5_000
+  @default_agent_stall_timeout_ms 300_000
+  @default_agent_approval_policy %{
     "reject" => %{
       "sandbox_approval" => true,
       "rules" => true,
       "mcp_elicitations" => true
     }
   }
-  @default_codex_thread_sandbox "workspace-write"
+  @default_agent_thread_sandbox "workspace-write"
   # Keys that can appear under either [agent] (preferred) or [codex] (deprecated).
   @agent_server_keys ~w(command turn_timeout_ms read_timeout_ms stall_timeout_ms)
 
@@ -105,22 +105,22 @@ defmodule SymphonyElixir.Config do
                                  ]
                                ]
                              ],
-                             codex: [
+                             agent_server: [
                                type: :map,
                                default: %{},
                                keys: [
-                                 command: [type: :string, default: @default_codex_command],
+                                 command: [type: :string, default: @default_agent_command],
                                  turn_timeout_ms: [
                                    type: :integer,
-                                   default: @default_codex_turn_timeout_ms
+                                   default: @default_agent_turn_timeout_ms
                                  ],
                                  read_timeout_ms: [
                                    type: :integer,
-                                   default: @default_codex_read_timeout_ms
+                                   default: @default_agent_read_timeout_ms
                                  ],
                                  stall_timeout_ms: [
                                    type: :integer,
-                                   default: @default_codex_stall_timeout_ms
+                                   default: @default_agent_stall_timeout_ms
                                  ]
                                ]
                              ],
@@ -165,7 +165,7 @@ defmodule SymphonyElixir.Config do
 
   @type workflow_payload :: Workflow.loaded_workflow()
   @type tracker_kind :: String.t() | nil
-  @type codex_runtime_settings :: %{
+  @type agent_runtime_settings :: %{
           approval_policy: String.t() | map(),
           thread_sandbox: String.t(),
           turn_sandbox_policy: map()
@@ -278,49 +278,49 @@ defmodule SymphonyElixir.Config do
 
   def max_concurrent_agents_for_state(_state_name), do: max_concurrent_agents()
 
-  @spec codex_command() :: String.t()
-  def codex_command do
-    get_in(validated_workflow_options(), [:codex, :command])
+  @spec agent_command() :: String.t()
+  def agent_command do
+    get_in(validated_workflow_options(), [:agent_server, :command])
   end
 
-  @spec codex_turn_timeout_ms() :: pos_integer()
-  def codex_turn_timeout_ms do
-    get_in(validated_workflow_options(), [:codex, :turn_timeout_ms])
+  @spec agent_turn_timeout_ms() :: pos_integer()
+  def agent_turn_timeout_ms do
+    get_in(validated_workflow_options(), [:agent_server, :turn_timeout_ms])
   end
 
-  @spec codex_approval_policy() :: String.t() | map()
-  def codex_approval_policy do
-    case resolve_codex_approval_policy() do
+  @spec agent_approval_policy() :: String.t() | map()
+  def agent_approval_policy do
+    case resolve_agent_approval_policy() do
       {:ok, approval_policy} -> approval_policy
-      {:error, _reason} -> @default_codex_approval_policy
+      {:error, _reason} -> @default_agent_approval_policy
     end
   end
 
-  @spec codex_thread_sandbox() :: String.t()
-  def codex_thread_sandbox do
-    case resolve_codex_thread_sandbox() do
+  @spec agent_thread_sandbox() :: String.t()
+  def agent_thread_sandbox do
+    case resolve_agent_thread_sandbox() do
       {:ok, thread_sandbox} -> thread_sandbox
-      {:error, _reason} -> @default_codex_thread_sandbox
+      {:error, _reason} -> @default_agent_thread_sandbox
     end
   end
 
-  @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
-  def codex_turn_sandbox_policy(workspace \\ nil) do
-    case resolve_codex_turn_sandbox_policy(workspace) do
+  @spec agent_turn_sandbox_policy(Path.t() | nil) :: map()
+  def agent_turn_sandbox_policy(workspace \\ nil) do
+    case resolve_agent_turn_sandbox_policy(workspace) do
       {:ok, turn_sandbox_policy} -> turn_sandbox_policy
-      {:error, _reason} -> default_codex_turn_sandbox_policy(workspace)
+      {:error, _reason} -> default_agent_turn_sandbox_policy(workspace)
     end
   end
 
-  @spec codex_read_timeout_ms() :: pos_integer()
-  def codex_read_timeout_ms do
-    get_in(validated_workflow_options(), [:codex, :read_timeout_ms])
+  @spec agent_read_timeout_ms() :: pos_integer()
+  def agent_read_timeout_ms do
+    get_in(validated_workflow_options(), [:agent_server, :read_timeout_ms])
   end
 
-  @spec codex_stall_timeout_ms() :: non_neg_integer()
-  def codex_stall_timeout_ms do
+  @spec agent_stall_timeout_ms() :: non_neg_integer()
+  def agent_stall_timeout_ms do
     validated_workflow_options()
-    |> get_in([:codex, :stall_timeout_ms])
+    |> get_in([:agent_server, :stall_timeout_ms])
     |> max(0)
   end
 
@@ -372,16 +372,16 @@ defmodule SymphonyElixir.Config do
          :ok <- require_tracker_kind(),
          :ok <- require_linear_token(),
          :ok <- require_linear_project(),
-         :ok <- require_valid_codex_runtime_settings() do
-      require_codex_command()
+         :ok <- require_valid_agent_runtime_settings() do
+      require_agent_command()
     end
   end
 
-  @spec codex_runtime_settings(Path.t() | nil) :: {:ok, codex_runtime_settings()} | {:error, term()}
-  def codex_runtime_settings(workspace \\ nil) do
-    with {:ok, approval_policy} <- resolve_codex_approval_policy(),
-         {:ok, thread_sandbox} <- resolve_codex_thread_sandbox(),
-         {:ok, turn_sandbox_policy} <- resolve_codex_turn_sandbox_policy(workspace) do
+  @spec agent_runtime_settings(Path.t() | nil) :: {:ok, agent_runtime_settings()} | {:error, term()}
+  def agent_runtime_settings(workspace \\ nil) do
+    with {:ok, approval_policy} <- resolve_agent_approval_policy(),
+         {:ok, thread_sandbox} <- resolve_agent_thread_sandbox(),
+         {:ok, turn_sandbox_policy} <- resolve_agent_turn_sandbox_policy(workspace) do
       {:ok,
        %{
          approval_policy: approval_policy,
@@ -428,16 +428,16 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp require_codex_command do
-    if byte_size(String.trim(codex_command())) > 0 do
+  defp require_agent_command do
+    if byte_size(String.trim(agent_command())) > 0 do
       :ok
     else
-      {:error, :missing_codex_command}
+      {:error, :missing_agent_command}
     end
   end
 
-  defp require_valid_codex_runtime_settings do
-    case codex_runtime_settings() do
+  defp require_valid_agent_runtime_settings do
+    case agent_runtime_settings() do
       {:ok, _settings} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -455,7 +455,7 @@ defmodule SymphonyElixir.Config do
       polling: extract_polling_options(section_map(config, "polling")),
       workspace: extract_workspace_options(section_map(config, "workspace")),
       agent: extract_agent_options(section_map(config, "agent")),
-      codex: extract_codex_options(resolve_agent_server_section(config)),
+      agent_server: extract_agent_server_options(resolve_agent_server_section(config)),
       hooks: extract_hooks_options(section_map(config, "hooks")),
       observability: extract_observability_options(section_map(config, "observability")),
       server: extract_server_options(section_map(config, "server"))
@@ -493,7 +493,7 @@ defmodule SymphonyElixir.Config do
     )
   end
 
-  defp extract_codex_options(section) do
+  defp extract_agent_server_options(section) do
     %{}
     |> put_if_present(:command, command_value(Map.get(section, "command")))
     |> put_if_present(:turn_timeout_ms, integer_value(Map.get(section, "turn_timeout_ms")))
@@ -525,18 +525,18 @@ defmodule SymphonyElixir.Config do
 
   defp resolve_agent_server_section(config) do
     agent = section_map(config, "agent")
-    codex = section_map(config, "codex")
+    legacy = section_map(config, "codex")
 
     agent_subset = Map.take(agent, @agent_server_keys)
-    codex_subset = Map.take(codex, @agent_server_keys)
+    legacy_subset = Map.take(legacy, @agent_server_keys)
 
-    fallback_keys = Map.keys(codex_subset) -- Map.keys(agent_subset)
+    fallback_keys = Map.keys(legacy_subset) -- Map.keys(agent_subset)
 
     if fallback_keys != [] do
       Logger.warning("Config section [codex] is deprecated, use [agent] instead")
     end
 
-    Map.merge(codex_subset, agent_subset)
+    Map.merge(legacy_subset, agent_subset)
   end
 
   defp section_map(config, key) do
@@ -724,19 +724,19 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  defp resolve_codex_approval_policy do
+  defp resolve_agent_approval_policy do
     case fetch_agent_server_value("approval_policy", :missing) do
       :missing ->
-        {:ok, @default_codex_approval_policy}
+        {:ok, @default_agent_approval_policy}
 
       nil ->
-        {:ok, @default_codex_approval_policy}
+        {:ok, @default_agent_approval_policy}
 
       value when is_binary(value) ->
         approval_policy = String.trim(value)
 
         if approval_policy == "" do
-          {:error, {:invalid_codex_approval_policy, value}}
+          {:error, {:invalid_agent_approval_policy, value}}
         else
           {:ok, approval_policy}
         end
@@ -745,49 +745,49 @@ defmodule SymphonyElixir.Config do
         {:ok, value}
 
       value ->
-        {:error, {:invalid_codex_approval_policy, value}}
+        {:error, {:invalid_agent_approval_policy, value}}
     end
   end
 
-  defp resolve_codex_thread_sandbox do
+  defp resolve_agent_thread_sandbox do
     case fetch_agent_server_value("thread_sandbox", :missing) do
       :missing ->
-        {:ok, @default_codex_thread_sandbox}
+        {:ok, @default_agent_thread_sandbox}
 
       nil ->
-        {:ok, @default_codex_thread_sandbox}
+        {:ok, @default_agent_thread_sandbox}
 
       value when is_binary(value) ->
         thread_sandbox = String.trim(value)
 
         if thread_sandbox == "" do
-          {:error, {:invalid_codex_thread_sandbox, value}}
+          {:error, {:invalid_agent_thread_sandbox, value}}
         else
           {:ok, thread_sandbox}
         end
 
       value ->
-        {:error, {:invalid_codex_thread_sandbox, value}}
+        {:error, {:invalid_agent_thread_sandbox, value}}
     end
   end
 
-  defp resolve_codex_turn_sandbox_policy(workspace) do
+  defp resolve_agent_turn_sandbox_policy(workspace) do
     case fetch_agent_server_value("turn_sandbox_policy", :missing) do
       :missing ->
-        {:ok, default_codex_turn_sandbox_policy(workspace)}
+        {:ok, default_agent_turn_sandbox_policy(workspace)}
 
       nil ->
-        {:ok, default_codex_turn_sandbox_policy(workspace)}
+        {:ok, default_agent_turn_sandbox_policy(workspace)}
 
       value when is_map(value) ->
         {:ok, value}
 
       value ->
-        {:error, {:invalid_codex_turn_sandbox_policy, {:unsupported_value, value}}}
+        {:error, {:invalid_agent_turn_sandbox_policy, {:unsupported_value, value}}}
     end
   end
 
-  defp default_codex_turn_sandbox_policy(workspace) do
+  defp default_agent_turn_sandbox_policy(workspace) do
     writable_root =
       if is_binary(workspace) and String.trim(workspace) != "" do
         Path.expand(workspace)
