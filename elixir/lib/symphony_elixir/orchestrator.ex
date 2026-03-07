@@ -927,15 +927,15 @@ defmodule SymphonyElixir.Orchestrator do
           identifier: metadata.identifier,
           state: metadata.issue.state,
           session_id: metadata.session_id,
-          codex_app_server_pid: metadata.codex_app_server_pid,
-          codex_input_tokens: metadata.codex_input_tokens,
-          codex_output_tokens: metadata.codex_output_tokens,
-          codex_total_tokens: metadata.codex_total_tokens,
+          agent_app_server_pid: metadata.codex_app_server_pid,
+          agent_input_tokens: metadata.codex_input_tokens,
+          agent_output_tokens: metadata.codex_output_tokens,
+          agent_total_tokens: metadata.codex_total_tokens,
           turn_count: Map.get(metadata, :turn_count, 0),
           started_at: metadata.started_at,
-          last_codex_timestamp: metadata.last_codex_timestamp,
-          last_codex_message: metadata.last_codex_message,
-          last_codex_event: metadata.last_codex_event,
+          last_agent_timestamp: metadata.last_codex_timestamp,
+          last_agent_message: metadata.last_codex_message,
+          last_agent_event: metadata.last_codex_event,
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
       end)
@@ -956,7 +956,7 @@ defmodule SymphonyElixir.Orchestrator do
      %{
        running: running,
        retrying: retrying,
-       codex_totals: state.codex_totals,
+       agent_totals: state.codex_totals,
        rate_limits: Map.get(state, :codex_rate_limits),
        polling: %{
          checking?: state.poll_check_in_progress == true,
