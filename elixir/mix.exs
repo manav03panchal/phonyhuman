@@ -14,6 +14,8 @@ defmodule SymphonyElixir.MixProject do
         ],
         ignore_modules: [
           SymphonyElixir.Config,
+          SymphonyElixir.Linear.CircuitBreaker,
+          SymphonyElixir.Linear.CircuitBreaker.State,
           SymphonyElixir.Linear.Client,
           SymphonyElixir.SpecsCheck,
           SymphonyElixir.Orchestrator,

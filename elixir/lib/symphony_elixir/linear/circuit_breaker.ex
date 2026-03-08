@@ -8,6 +8,9 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
   transitions to half-open and allows a single probe call through. A
   successful probe closes the circuit; a failed probe re-opens it with a
   shorter probe interval cooldown.
+
+  The wrapped function executes in the caller's process to preserve
+  process dictionary and message semantics.
   """
 
   use GenServer
@@ -51,7 +54,16 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
         when result: term()
   def call(fun, opts \\ []) when is_function(fun, 0) do
     name = Keyword.get(opts, :name, __MODULE__)
-    GenServer.call(name, {:call, fun})
+
+    case GenServer.call(name, :acquire) do
+      :allow ->
+        result = fun.()
+        GenServer.call(name, {:report, classify_result(result)})
+        result
+
+      :reject ->
+        {:error, :circuit_open}
+    end
   end
 
   @spec status(keyword()) :: State.circuit_state()
@@ -80,16 +92,16 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
   end
 
   @impl true
-  def handle_call({:call, fun}, _from, %State{} = state) do
+  def handle_call(:acquire, _from, %State{} = state) do
     case state.status do
       :closed ->
-        execute_and_track(fun, state)
+        {:reply, :allow, state}
 
       :open ->
-        maybe_transition_to_half_open(fun, state)
+        maybe_allow_probe(state)
 
       :half_open ->
-        {:reply, {:error, :circuit_open}, state}
+        {:reply, :reject, state}
     end
   end
 
@@ -101,63 +113,47 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
     {:reply, :ok, %State{state | status: :closed, failure_count: 0, opened_at: nil}}
   end
 
-  # Private helpers
-
-  defp execute_and_track(fun, %State{} = state) do
-    result = fun.()
-
-    case classify_result(result) do
-      :success ->
-        new_state = handle_success(state)
-        {:reply, result, new_state}
-
-      :failure ->
-        new_state = handle_failure(state)
-        {:reply, result, new_state}
-    end
+  def handle_call({:report, outcome}, _from, %State{} = state) do
+    {:reply, :ok, apply_outcome(outcome, state)}
   end
 
-  defp maybe_transition_to_half_open(fun, %State{opened_at: opened_at} = state) do
+  # Private helpers
+
+  defp maybe_allow_probe(%State{opened_at: opened_at} = state) do
     elapsed = now_ms() - (opened_at || 0)
     cooldown = effective_cooldown(state)
 
     if elapsed >= cooldown do
       Logger.info("Circuit breaker: open -> half_open (attempting probe after #{elapsed}ms)")
-      probe_state = %State{state | status: :half_open}
-      execute_probe(fun, probe_state)
+      {:reply, :allow, %State{state | status: :half_open}}
     else
-      {:reply, {:error, :circuit_open}, state}
+      {:reply, :reject, state}
     end
   end
 
-  defp execute_probe(fun, %State{} = state) do
-    result = fun.()
+  defp apply_outcome(:success, %State{status: :half_open} = state) do
+    Logger.info(
+      "Circuit breaker: half_open -> closed (probe succeeded, failure_count=#{state.failure_count})"
+    )
 
-    case classify_result(result) do
-      :success ->
-        Logger.info(
-          "Circuit breaker: half_open -> closed (probe succeeded, failure_count=#{state.failure_count})"
-        )
-
-        {:reply, result, %State{state | status: :closed, failure_count: 0, opened_at: nil}}
-
-      :failure ->
-        new_count = state.failure_count + 1
-
-        Logger.warning(
-          "Circuit breaker: half_open -> open (probe failed, failure_count=#{new_count})"
-        )
-
-        {:reply, result,
-         %State{state | status: :open, failure_count: new_count, opened_at: now_ms()}}
-    end
+    %State{state | status: :closed, failure_count: 0, opened_at: nil}
   end
 
-  defp handle_success(%State{} = state) do
+  defp apply_outcome(:failure, %State{status: :half_open} = state) do
+    new_count = state.failure_count + 1
+
+    Logger.warning(
+      "Circuit breaker: half_open -> open (probe failed, failure_count=#{new_count})"
+    )
+
+    %State{state | status: :open, failure_count: new_count, opened_at: now_ms()}
+  end
+
+  defp apply_outcome(:success, %State{} = state) do
     %State{state | failure_count: 0}
   end
 
-  defp handle_failure(%State{failure_count: count, failure_threshold: threshold} = state) do
+  defp apply_outcome(:failure, %State{failure_count: count, failure_threshold: threshold} = state) do
     new_count = count + 1
 
     if new_count >= threshold do
@@ -179,10 +175,12 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
     end
   end
 
-  defp classify_result({:ok, _}), do: :success
-  defp classify_result(:ok), do: :success
-  defp classify_result({:error, _}), do: :failure
-  defp classify_result(_), do: :success
+  @doc false
+  @spec classify_result(term()) :: :success | :failure
+  def classify_result({:ok, _}), do: :success
+  def classify_result(:ok), do: :success
+  def classify_result({:error, _}), do: :failure
+  def classify_result(_), do: :success
 
   defp now_ms, do: System.monotonic_time(:millisecond)
 end
