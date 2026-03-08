@@ -37,6 +37,7 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixirWeb.Presenter,
           SymphonyElixirWeb.StaticAssetController,
           SymphonyElixirWeb.StaticAssets,
+          SymphonyElixirWeb.Plugs.RateLimiter,
           SymphonyElixirWeb.Router,
           SymphonyElixirWeb.Router.Helpers
         ]
