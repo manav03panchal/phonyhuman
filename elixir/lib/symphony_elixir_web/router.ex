@@ -15,6 +15,12 @@ defmodule SymphonyElixirWeb.Router do
   end
 
   pipeline :api do
+    plug(:put_secure_browser_headers, %{
+      "x-frame-options" => "DENY",
+      "x-content-type-options" => "nosniff",
+      "strict-transport-security" => "max-age=63072000"
+    })
+
     plug(SymphonyElixirWeb.Plugs.RateLimiter)
   end
 
@@ -33,6 +39,8 @@ defmodule SymphonyElixirWeb.Router do
 
   scope "/", SymphonyElixirWeb do
     pipe_through(:api)
+
+    get("/health", HealthController, :index)
 
     get("/api/v1/state", ObservabilityApiController, :state)
 

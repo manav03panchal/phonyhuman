@@ -35,6 +35,7 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixirWeb.ErrorHTML,
           SymphonyElixirWeb.ErrorJSON,
           SymphonyElixirWeb.Layouts,
+          SymphonyElixirWeb.HealthController,
           SymphonyElixirWeb.ObservabilityApiController,
           SymphonyElixirWeb.Presenter,
           SymphonyElixirWeb.StaticAssetController,

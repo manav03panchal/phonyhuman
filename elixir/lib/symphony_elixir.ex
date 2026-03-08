@@ -22,6 +22,8 @@ defmodule SymphonyElixir.Application do
   @impl true
   def start(_type, _args) do
     :ok = SymphonyElixir.LogFile.configure()
+    :persistent_term.put(:symphony_started_at, System.monotonic_time(:second))
+    :persistent_term.put(:symphony_shutting_down, false)
 
     children = [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
@@ -41,6 +43,12 @@ defmodule SymphonyElixir.Application do
       max_seconds: 30,
       name: SymphonyElixir.Supervisor
     )
+  end
+
+  @impl true
+  def prep_stop(state) do
+    :persistent_term.put(:symphony_shutting_down, true)
+    state
   end
 
   @impl true
