@@ -434,5 +434,4 @@ defmodule SymphonyElixir.TelemetryCollectorTest do
       assert resp.status == 404
     end
   end
-
 end

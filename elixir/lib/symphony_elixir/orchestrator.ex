@@ -1398,14 +1398,17 @@ defmodule SymphonyElixir.Orchestrator do
   def parse_retry_after_for_test(update), do: parse_retry_after(update)
 
   @doc false
+  @spec extract_token_delta_for_test(map(), map()) :: map()
   def extract_token_delta_for_test(running_entry, update),
     do: extract_token_delta(running_entry, update)
 
   @doc false
+  @spec apply_token_delta_for_test(map(), map()) :: map()
   def apply_token_delta_for_test(agent_totals, token_delta),
     do: apply_token_delta(agent_totals, token_delta)
 
   @doc false
+  @spec integrate_agent_update_for_test(map(), map()) :: map()
   def integrate_agent_update_for_test(running_entry, update),
     do: integrate_agent_update(running_entry, update)
 

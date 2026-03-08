@@ -70,7 +70,17 @@ defmodule SymphonyElixir.TelemetryCollector do
 
       {:error, reason} ->
         Logger.warning("TelemetryCollector failed to start HTTP listener: #{inspect(reason)}")
-        {:ok, %{sessions: %{}, orchestrator: orchestrator, listener_ref: nil, listener_monitor: nil, port: port, bound_port: nil}}
+
+        state = %{
+          sessions: %{},
+          orchestrator: orchestrator,
+          listener_ref: nil,
+          listener_monitor: nil,
+          port: port,
+          bound_port: nil
+        }
+
+        {:ok, state}
     end
   end
 
@@ -119,6 +129,7 @@ defmodule SymphonyElixir.TelemetryCollector do
   # -------------------------------------------------------------------
 
   @doc false
+  @spec parse_resource_metrics(map()) :: map()
   def parse_resource_metrics(%{"resourceMetrics" => resource_metrics}) when is_list(resource_metrics) do
     Enum.reduce(resource_metrics, %{}, fn rm, acc ->
       session_id = extract_session_id(rm)
@@ -135,6 +146,7 @@ defmodule SymphonyElixir.TelemetryCollector do
   def parse_resource_metrics(_), do: %{}
 
   @doc false
+  @spec parse_resource_logs(map()) :: map()
   def parse_resource_logs(%{"resourceLogs" => resource_logs}) when is_list(resource_logs) do
     Enum.reduce(resource_logs, %{}, fn rl, acc ->
       session_id = extract_session_id(rl)
