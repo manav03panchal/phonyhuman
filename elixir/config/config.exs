@@ -10,9 +10,6 @@ config :symphony_elixir, SymphonyElixirWeb.Endpoint,
     layout: false
   ],
   pubsub_server: SymphonyElixir.PubSub,
-  live_view: [signing_salt: "symphony-live-view"],
-  server: false
+  live_view: [signing_salt: "symphony-live-view"]
 
-if config_env() == :test do
-  config :symphony_elixir, telemetry_collector_port: 0
-end
+import_config "#{config_env()}.exs"
