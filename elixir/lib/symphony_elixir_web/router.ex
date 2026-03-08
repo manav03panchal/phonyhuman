@@ -20,6 +20,8 @@ defmodule SymphonyElixirWeb.Router do
       "x-content-type-options" => "nosniff",
       "strict-transport-security" => "max-age=63072000"
     })
+
+    plug(SymphonyElixirWeb.Plugs.RateLimiter)
   end
 
   scope "/", SymphonyElixirWeb do

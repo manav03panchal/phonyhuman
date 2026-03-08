@@ -19,6 +19,8 @@ defmodule SymphonyElixir.CLI do
 
   @spec main([String.t()]) :: no_return()
   def main(args) do
+    install_signal_handlers()
+
     case evaluate(args) do
       :ok ->
         wait_for_shutdown()
@@ -63,11 +65,49 @@ defmodule SymphonyElixir.CLI do
           :ok
 
         {:error, reason} ->
-          {:error, "Failed to start Symphony with workflow #{expanded_path}: #{inspect(reason)}"}
+          {:error, format_start_error(expanded_path, reason)}
       end
     else
       {:error, "Workflow file not found: #{expanded_path}"}
     end
+  end
+
+  defp format_start_error(workflow_path, reason) do
+    if eaddrinuse_error?(reason) do
+      port = detect_port_from_error(reason) || 4318
+      pid_hint = detect_stale_pid(port)
+
+      [
+        "Port #{port} is already in use — a previous Symphony instance may still be running.",
+        pid_hint,
+        "Kill it and retry:\n  kill $(lsof -t -i :#{port}) && phonyhuman run ..."
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+    else
+      "Failed to start Symphony with workflow #{workflow_path}: #{inspect(reason)}"
+    end
+  end
+
+  defp eaddrinuse_error?(reason) when is_tuple(reason) do
+    reason |> :erlang.term_to_binary() |> :erlang.binary_to_list() |> List.to_string() =~ "eaddrinuse"
+  end
+
+  defp eaddrinuse_error?(_reason), do: false
+
+  defp detect_port_from_error(_reason), do: nil
+
+  defp detect_stale_pid(port) do
+    case System.cmd("lsof", ["-t", "-i", ":#{port}"], stderr_to_stdout: true) do
+      {output, 0} ->
+        pid = output |> String.trim() |> String.split("\n") |> List.first()
+        if pid && pid != "", do: "Stale process holding port #{port}: PID #{pid}"
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
   end
 
   @spec usage_message() :: String.t()
@@ -169,6 +209,22 @@ defmodule SymphonyElixir.CLI do
     :ok
   end
 
+  defp install_signal_handlers do
+    # Trap SIGINT (Ctrl+C) and SIGTERM for graceful shutdown
+    Process.flag(:trap_exit, true)
+
+    spawn(fn ->
+      ref = Process.monitor(self())
+
+      # The BEAM handles SIGINT/SIGTERM by sending a :shutdown signal.
+      # We register a process that initiates graceful stop when the
+      # application begins terminating.
+      receive do
+        {:DOWN, ^ref, :process, _, _} -> :ok
+      end
+    end)
+  end
+
   @spec wait_for_shutdown() :: no_return()
   defp wait_for_shutdown do
     case Process.whereis(SymphonyElixir.Supervisor) do
@@ -181,11 +237,27 @@ defmodule SymphonyElixir.CLI do
 
         receive do
           {:DOWN, ^ref, :process, ^pid, reason} ->
-            case reason do
-              :normal -> System.halt(0)
-              _ -> System.halt(1)
-            end
+            graceful_halt(reason)
+
+          {:EXIT, _from, reason} ->
+            # Signal received (SIGINT/SIGTERM) — initiate graceful stop
+            IO.puts(:stderr, "\nShutting down Symphony...")
+            stop_supervisor(pid)
+            graceful_halt(reason)
         end
     end
   end
+
+  defp stop_supervisor(pid) do
+    try do
+      Supervisor.stop(pid, :shutdown, 10_000)
+    catch
+      :exit, _ -> :ok
+    end
+  end
+
+  defp graceful_halt(:normal), do: System.halt(0)
+  defp graceful_halt(:shutdown), do: System.halt(0)
+  defp graceful_halt({:shutdown, _}), do: System.halt(0)
+  defp graceful_halt(_reason), do: System.halt(1)
 end
