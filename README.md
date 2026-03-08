@@ -10,6 +10,15 @@ phonyhuman 🤪 polls your Linear board for issues, spins up isolated workspaces
 curl -sSL https://raw.githubusercontent.com/manav03panchal/phonyhuman/main/install.sh | sh
 ```
 
+Or build from source:
+
+```bash
+git clone https://github.com/manav03panchal/phonyhuman.git
+cd phonyhuman/elixir
+mix deps.get && mix escript.build
+# Add bin/ to your PATH
+```
+
 ## Quick start
 
 ```bash
@@ -51,8 +60,9 @@ phonyhuman help            Usage info
 ## Prerequisites
 
 - **Claude Code** with a Max subscription (`claude` CLI in PATH)
-- **Erlang/OTP 28** (auto-installed via [mise](https://mise.jdx.dev/) if missing)
+- **Erlang/OTP 28** + **Elixir 1.19** (auto-installed via [mise](https://mise.jdx.dev/) if missing)
 - **Python 3.11+** (for the protocol shim)
+- **git** 2.x+
 - **Linear account** with a personal API key
 - **GitHub CLI** (`gh`) — recommended for the PR workflow ([install](https://cli.github.com))
 
@@ -264,6 +274,17 @@ phonyhuman update
 | `SOURCE_REPO_URL` | Git clone URL (overrides config) |
 | `GITHUB_TOKEN` | Auth token for private repo / self-update |
 | `PHONYHUMAN_VERSION` | Pin installer to a specific version |
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [SPEC.md](SPEC.md) | Full system specification — architecture, domain model, data contracts |
+| [Deployment guide](elixir/docs/deployment.md) | Production setup, Docker, environment variables, health checks |
+| [Elixir internals](elixir/README.md) | Symphony orchestrator development guide |
+| [Developer conventions](elixir/AGENTS.md) | Code style, @spec requirements, PR conventions |
+| [Logging](elixir/docs/logging.md) | Structured logging conventions |
+| [Token accounting](elixir/docs/token_accounting.md) | Claude token usage tracking and cost attribution |
 
 ## License
 
