@@ -568,19 +568,23 @@ defmodule SymphonyElixir.Config do
   end
 
   defp resolve_agent_server_section(config) do
+    agent_server = section_map(config, "agent_server")
     agent = section_map(config, "agent")
     legacy = section_map(config, "codex")
 
+    agent_server_subset = Map.take(agent_server, @agent_server_keys)
     agent_subset = Map.take(agent, @agent_server_keys)
     legacy_subset = Map.take(legacy, @agent_server_keys)
 
-    fallback_keys = Map.keys(legacy_subset) -- Map.keys(agent_subset)
+    fallback_keys = Map.keys(legacy_subset) -- Map.keys(agent_subset) -- Map.keys(agent_server_subset)
 
     if fallback_keys != [] do
       Logger.warning("Config section [codex] is deprecated, use [agent] instead")
     end
 
-    Map.merge(legacy_subset, agent_subset)
+    legacy_subset
+    |> Map.merge(agent_subset)
+    |> Map.merge(agent_server_subset)
   end
 
   defp section_map(config, key) do
