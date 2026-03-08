@@ -16,6 +16,7 @@
 | `PORT` | `4000` | HTTP listen port. |
 | `HOST` | `localhost` | Hostname for URL generation. |
 | `ALLOWED_ORIGINS` | _(unset)_ | Comma-separated list of allowed origins for CSRF/WebSocket checks. When unset, origin checking is enabled with default behavior. |
+| `SHUTDOWN_TIMEOUT_MS` | `60000` | Maximum time (ms) to wait for running agents to finish during graceful shutdown. |
 
 ## Configuration Files
 
@@ -153,9 +154,88 @@ are available inside the container.
 
 ## Health Check
 
-The container health check probes `GET /health` on port 4000. This
-lightweight endpoint returns 200 when the orchestrator is running and 503
-during graceful shutdown.
+The container health check probes `GET /health` on port 4000.
+
+**Response when running normally** — `200 OK`:
+
+```json
+{
+  "status": "ok",
+  "uptime_seconds": 3421,
+  "active_agents": 2
+}
+```
+
+**Response during graceful shutdown** — `503 Service Unavailable`:
+
+```json
+{
+  "status": "shutting_down"
+}
+```
+
+The docker-compose health check is configured with `interval=30s`,
+`timeout=5s`, `start_period=30s`, and `retries=3`. The Dockerfile defines
+a shorter `start_period` of 15 s, but docker-compose overrides it.
+
+## Graceful Shutdown
+
+When the orchestrator receives a termination signal (e.g. `SIGTERM` from
+`docker stop`), it performs a graceful shutdown sequence:
+
+1. **Health endpoint switches to 503** — load balancers and the Docker
+   health check see `shutting_down` and stop sending traffic.
+2. **New dispatches are blocked** — the orchestrator stops assigning new
+   issues to agents.
+3. **Agent drain** — running agents are given time to finish. The default
+   drain timeout is **60 seconds**. Agents that complete within the window
+   are logged as finished; agents still running after the deadline are
+   force-killed and their workspaces cleaned up.
+4. **Summary** — the orchestrator logs the count of agents that finished
+   versus those that were force-killed.
+
+The drain timeout is configurable via the `SHUTDOWN_TIMEOUT_MS` environment
+variable (value in milliseconds). For example, `SHUTDOWN_TIMEOUT_MS=120000`
+gives agents two minutes to complete.
+
+## Log Redaction
+
+Log redaction is active by default in production. All log output is piped
+through a redacting formatter that replaces sensitive patterns with
+`[REDACTED]` before they reach disk or stdout. Redacted patterns include:
+
+- Linear API keys (`lin_api_…`)
+- GitHub tokens (`ghp_…`, `ghu_…`)
+- OpenAI / Anthropic keys (`sk-…`)
+- Bearer tokens, query-string tokens, and password fields
+
+Logs are written to a rotating disk log under the configured `--logs-root`
+(default `/var/log/symphony`), with a 10 MB max file size and 5 rotated files.
+
+## Circuit Breaker (Linear API)
+
+All Linear API calls are wrapped in a circuit breaker. During sustained
+Linear outages the breaker opens and fails fast instead of queuing up
+requests:
+
+| Parameter          | Default   |
+|--------------------|-----------|
+| Failure threshold  | 5 consecutive failures |
+| Cooldown           | 60 s      |
+| Half-open probe    | 15 s interval |
+
+**State transitions:**
+
+- **Closed → Open** — after 5 consecutive failures, the breaker opens and
+  immediately returns `{:error, :circuit_open}` for all calls.
+- **Open → Half-open** — after the cooldown period, one probe call is
+  allowed through.
+- **Half-open → Closed** — if the probe succeeds, the breaker resets.
+- **Half-open → Open** — if the probe fails, the breaker re-opens with
+  a shorter probe interval (15 s).
+
+When the breaker is open, the orchestrator skips polling and issue
+dispatching until Linear recovers, avoiding cascading failures.
 
 ## Running Standalone (without Compose)
 
