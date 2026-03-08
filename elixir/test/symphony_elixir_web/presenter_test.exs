@@ -24,17 +24,18 @@ defmodule SymphonyElixirWeb.PresenterTest do
 
   describe "state_payload/2" do
     test "includes cache_read_tokens, cache_creation_tokens, and cost_usd in agent_totals" do
-      pid = start_mock(%{
-        running: [],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 100,
-          output_tokens: 50,
-          total_tokens: 150,
-          seconds_running: 60
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            seconds_running: 60
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
 
@@ -48,20 +49,21 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
 
     test "preserves non-zero cache and cost values from snapshot" do
-      pid = start_mock(%{
-        running: [],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 45_230,
-          output_tokens: 8_120,
-          total_tokens: 53_350,
-          seconds_running: 754,
-          cache_read_tokens: 31_500,
-          cache_creation_tokens: 12_000,
-          cost_usd: 0.42
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 45_230,
+            output_tokens: 8_120,
+            total_tokens: 53_350,
+            seconds_running: 754,
+            cache_read_tokens: 31_500,
+            cache_creation_tokens: 12_000,
+            cost_usd: 0.42
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
 
@@ -89,18 +91,19 @@ defmodule SymphonyElixirWeb.PresenterTest do
 
   describe "cache_hit_rate in API output" do
     test "includes cache_hit_rate in agent_totals" do
-      pid = start_mock(%{
-        running: [],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 15_000,
-          output_tokens: 5_000,
-          total_tokens: 20_000,
-          cache_read_tokens: 8_000,
-          seconds_running: 120
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 15_000,
+            output_tokens: 5_000,
+            total_tokens: 20_000,
+            cache_read_tokens: 8_000,
+            seconds_running: 120
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
 
@@ -108,17 +111,18 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
 
     test "includes cache_hit_rate 0.0 in agent_totals when both tokens are 0" do
-      pid = start_mock(%{
-        running: [],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 0,
-          output_tokens: 0,
-          total_tokens: 0,
-          seconds_running: 0
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            seconds_running: 0
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
 
@@ -126,37 +130,38 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
 
     test "includes cache_hit_rate in per-session token map" do
-      pid = start_mock(%{
-        running: [
-          %{
-            issue_id: "issue-1",
-            identifier: "MT-100",
-            state: "In Progress",
-            session_id: "sess-abc",
-            agent_app_server_pid: nil,
-            agent_input_tokens: 1_000,
-            agent_output_tokens: 200,
-            agent_total_tokens: 1_200,
-            agent_cache_read_tokens: 800,
-            agent_cost_usd: 0.15,
-            model: "claude-opus-4-6",
-            turn_count: 3,
-            started_at: DateTime.utc_now(),
-            last_agent_timestamp: nil,
-            last_agent_message: nil,
-            last_agent_event: nil,
-            runtime_seconds: 120
-          }
-        ],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 1_000,
-          output_tokens: 200,
-          total_tokens: 1_200,
-          seconds_running: 0
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [
+            %{
+              issue_id: "issue-1",
+              identifier: "MT-100",
+              state: "In Progress",
+              session_id: "sess-abc",
+              agent_app_server_pid: nil,
+              agent_input_tokens: 1_000,
+              agent_output_tokens: 200,
+              agent_total_tokens: 1_200,
+              agent_cache_read_tokens: 800,
+              agent_cost_usd: 0.15,
+              model: "claude-opus-4-6",
+              turn_count: 3,
+              started_at: DateTime.utc_now(),
+              last_agent_timestamp: nil,
+              last_agent_message: nil,
+              last_agent_event: nil,
+              runtime_seconds: 120
+            }
+          ],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 1_000,
+            output_tokens: 200,
+            total_tokens: 1_200,
+            seconds_running: 0
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
       [entry] = payload.running
@@ -166,34 +171,35 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
 
     test "per-session cache_hit_rate is 0.0 when cache_read_tokens is absent" do
-      pid = start_mock(%{
-        running: [
-          %{
-            issue_id: "issue-2",
-            identifier: "MT-200",
-            state: "Todo",
-            session_id: nil,
-            agent_app_server_pid: nil,
-            agent_input_tokens: 500,
-            agent_output_tokens: 100,
-            agent_total_tokens: 600,
-            turn_count: 1,
-            started_at: DateTime.utc_now(),
-            last_agent_timestamp: nil,
-            last_agent_message: nil,
-            last_agent_event: nil,
-            runtime_seconds: 30
-          }
-        ],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 500,
-          output_tokens: 100,
-          total_tokens: 600,
-          seconds_running: 0
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [
+            %{
+              issue_id: "issue-2",
+              identifier: "MT-200",
+              state: "Todo",
+              session_id: nil,
+              agent_app_server_pid: nil,
+              agent_input_tokens: 500,
+              agent_output_tokens: 100,
+              agent_total_tokens: 600,
+              turn_count: 1,
+              started_at: DateTime.utc_now(),
+              last_agent_timestamp: nil,
+              last_agent_message: nil,
+              last_agent_event: nil,
+              runtime_seconds: 30
+            }
+          ],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 500,
+            output_tokens: 100,
+            total_tokens: 600,
+            seconds_running: 0
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
       [entry] = payload.running
@@ -204,26 +210,27 @@ defmodule SymphonyElixirWeb.PresenterTest do
 
   describe "OTel fields in agent_totals" do
     test "includes OTel-derived fields when present" do
-      pid = start_mock(%{
-        running: [],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 1_000,
-          output_tokens: 200,
-          total_tokens: 1_200,
-          seconds_running: 120,
-          tool_executions: [
-            %{name: "Bash", duration_ms: 500, success: true},
-            %{name: "Read", duration_ms: 100, success: true}
-          ],
-          api_errors: 2,
-          lines_changed: 142,
-          commits_count: 3,
-          prs_count: 1,
-          active_time_seconds: 754
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 1_000,
+            output_tokens: 200,
+            total_tokens: 1_200,
+            seconds_running: 120,
+            tool_executions: [
+              %{name: "Bash", duration_ms: 500, success: true},
+              %{name: "Read", duration_ms: 100, success: true}
+            ],
+            api_errors: 2,
+            lines_changed: 142,
+            commits_count: 3,
+            prs_count: 1,
+            active_time_seconds: 754
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
 
@@ -238,17 +245,18 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
 
     test "defaults OTel fields to 0 when absent" do
-      pid = start_mock(%{
-        running: [],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 100,
-          output_tokens: 50,
-          total_tokens: 150,
-          seconds_running: 60
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            seconds_running: 60
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
 
@@ -264,46 +272,47 @@ defmodule SymphonyElixirWeb.PresenterTest do
 
   describe "OTel fields in per-session entries" do
     test "includes OTel-derived fields in running entry" do
-      pid = start_mock(%{
-        running: [
-          %{
-            issue_id: "issue-otel",
-            identifier: "MT-500",
-            state: "In Progress",
-            session_id: "sess-otel",
-            agent_app_server_pid: nil,
-            agent_input_tokens: 1_000,
-            agent_output_tokens: 200,
-            agent_total_tokens: 1_200,
-            agent_cache_read_tokens: 800,
-            agent_cost_usd: 0.15,
-            model: "claude-opus-4-6",
-            turn_count: 3,
-            started_at: DateTime.utc_now(),
-            last_agent_timestamp: nil,
-            last_agent_message: nil,
-            last_agent_event: nil,
-            runtime_seconds: 120,
-            otel_tool_executions: [
-              %{name: "Bash", duration_ms: 500, success: true},
-              %{name: "Edit", duration_ms: 300, success: true}
-            ],
-            otel_api_errors: 1,
-            otel_lines_changed: 99,
-            otel_commits_count: 4,
-            otel_prs_count: 2,
-            otel_active_time_seconds: 300
-          }
-        ],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 1_000,
-          output_tokens: 200,
-          total_tokens: 1_200,
-          seconds_running: 0
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [
+            %{
+              issue_id: "issue-otel",
+              identifier: "MT-500",
+              state: "In Progress",
+              session_id: "sess-otel",
+              agent_app_server_pid: nil,
+              agent_input_tokens: 1_000,
+              agent_output_tokens: 200,
+              agent_total_tokens: 1_200,
+              agent_cache_read_tokens: 800,
+              agent_cost_usd: 0.15,
+              model: "claude-opus-4-6",
+              turn_count: 3,
+              started_at: DateTime.utc_now(),
+              last_agent_timestamp: nil,
+              last_agent_message: nil,
+              last_agent_event: nil,
+              runtime_seconds: 120,
+              otel_tool_executions: [
+                %{name: "Bash", duration_ms: 500, success: true},
+                %{name: "Edit", duration_ms: 300, success: true}
+              ],
+              otel_api_errors: 1,
+              otel_lines_changed: 99,
+              otel_commits_count: 4,
+              otel_prs_count: 2,
+              otel_active_time_seconds: 300
+            }
+          ],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 1_000,
+            output_tokens: 200,
+            total_tokens: 1_200,
+            seconds_running: 0
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
       [entry] = payload.running
@@ -318,34 +327,35 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
 
     test "defaults per-session OTel fields to 0 when absent" do
-      pid = start_mock(%{
-        running: [
-          %{
-            issue_id: "issue-no-otel",
-            identifier: "MT-600",
-            state: "Todo",
-            session_id: nil,
-            agent_app_server_pid: nil,
-            agent_input_tokens: 500,
-            agent_output_tokens: 100,
-            agent_total_tokens: 600,
-            turn_count: 1,
-            started_at: DateTime.utc_now(),
-            last_agent_timestamp: nil,
-            last_agent_message: nil,
-            last_agent_event: nil,
-            runtime_seconds: 30
-          }
-        ],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 500,
-          output_tokens: 100,
-          total_tokens: 600,
-          seconds_running: 0
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [
+            %{
+              issue_id: "issue-no-otel",
+              identifier: "MT-600",
+              state: "Todo",
+              session_id: nil,
+              agent_app_server_pid: nil,
+              agent_input_tokens: 500,
+              agent_output_tokens: 100,
+              agent_total_tokens: 600,
+              turn_count: 1,
+              started_at: DateTime.utc_now(),
+              last_agent_timestamp: nil,
+              last_agent_message: nil,
+              last_agent_event: nil,
+              runtime_seconds: 30
+            }
+          ],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 500,
+            output_tokens: 100,
+            total_tokens: 600,
+            seconds_running: 0
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
       [entry] = payload.running
@@ -362,37 +372,38 @@ defmodule SymphonyElixirWeb.PresenterTest do
 
   describe "running_entry_payload (via state_payload)" do
     test "includes model and cost_usd in tokens map" do
-      pid = start_mock(%{
-        running: [
-          %{
-            issue_id: "issue-1",
-            identifier: "MT-100",
-            state: "In Progress",
-            session_id: "sess-abc",
-            agent_app_server_pid: nil,
-            agent_input_tokens: 1_000,
-            agent_output_tokens: 200,
-            agent_total_tokens: 1_200,
-            agent_cache_read_tokens: 800,
-            agent_cost_usd: 0.15,
-            model: "claude-opus-4-6",
-            turn_count: 3,
-            started_at: DateTime.utc_now(),
-            last_agent_timestamp: nil,
-            last_agent_message: nil,
-            last_agent_event: nil,
-            runtime_seconds: 120
-          }
-        ],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 1_000,
-          output_tokens: 200,
-          total_tokens: 1_200,
-          seconds_running: 0
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [
+            %{
+              issue_id: "issue-1",
+              identifier: "MT-100",
+              state: "In Progress",
+              session_id: "sess-abc",
+              agent_app_server_pid: nil,
+              agent_input_tokens: 1_000,
+              agent_output_tokens: 200,
+              agent_total_tokens: 1_200,
+              agent_cache_read_tokens: 800,
+              agent_cost_usd: 0.15,
+              model: "claude-opus-4-6",
+              turn_count: 3,
+              started_at: DateTime.utc_now(),
+              last_agent_timestamp: nil,
+              last_agent_message: nil,
+              last_agent_event: nil,
+              runtime_seconds: 120
+            }
+          ],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 1_000,
+            output_tokens: 200,
+            total_tokens: 1_200,
+            seconds_running: 0
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
       [entry] = payload.running
@@ -406,34 +417,35 @@ defmodule SymphonyElixirWeb.PresenterTest do
     end
 
     test "defaults model to nil and cost/cache to 0 when not present" do
-      pid = start_mock(%{
-        running: [
-          %{
-            issue_id: "issue-2",
-            identifier: "MT-200",
-            state: "Todo",
-            session_id: nil,
-            agent_app_server_pid: nil,
-            agent_input_tokens: 500,
-            agent_output_tokens: 100,
-            agent_total_tokens: 600,
-            turn_count: 1,
-            started_at: DateTime.utc_now(),
-            last_agent_timestamp: nil,
-            last_agent_message: nil,
-            last_agent_event: nil,
-            runtime_seconds: 30
-          }
-        ],
-        retrying: [],
-        agent_totals: %{
-          input_tokens: 500,
-          output_tokens: 100,
-          total_tokens: 600,
-          seconds_running: 0
-        },
-        rate_limits: nil
-      })
+      pid =
+        start_mock(%{
+          running: [
+            %{
+              issue_id: "issue-2",
+              identifier: "MT-200",
+              state: "Todo",
+              session_id: nil,
+              agent_app_server_pid: nil,
+              agent_input_tokens: 500,
+              agent_output_tokens: 100,
+              agent_total_tokens: 600,
+              turn_count: 1,
+              started_at: DateTime.utc_now(),
+              last_agent_timestamp: nil,
+              last_agent_message: nil,
+              last_agent_event: nil,
+              runtime_seconds: 30
+            }
+          ],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 500,
+            output_tokens: 100,
+            total_tokens: 600,
+            seconds_running: 0
+          },
+          rate_limits: nil
+        })
 
       payload = Presenter.state_payload(pid, 5_000)
       [entry] = payload.running
