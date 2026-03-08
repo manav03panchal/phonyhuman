@@ -37,6 +37,7 @@ defmodule SymphonyElixir.Config do
   @default_agent_turn_timeout_ms 3_600_000
   @default_agent_read_timeout_ms 5_000
   @default_agent_stall_timeout_ms 300_000
+  @default_shutdown_timeout_ms 60_000
   @default_fleet_pause_default_ms 1_800_000
   @default_fleet_pause_max_ms 14_400_000
   @default_fleet_pause_pattern_window_ms 60_000
@@ -125,6 +126,10 @@ defmodule SymphonyElixir.Config do
                                  fleet_pause_pattern_threshold: [
                                    type: :pos_integer,
                                    default: @default_fleet_pause_pattern_threshold
+                                 ],
+                                 shutdown_timeout_ms: [
+                                   type: :pos_integer,
+                                   default: @default_shutdown_timeout_ms
                                  ]
                                ]
                              ],
@@ -333,6 +338,20 @@ defmodule SymphonyElixir.Config do
   @spec fleet_pause_pattern_threshold() :: pos_integer()
   def fleet_pause_pattern_threshold do
     get_in(validated_workflow_options(), [:agent, :fleet_pause_pattern_threshold])
+  end
+
+  @spec shutdown_timeout_ms() :: pos_integer()
+  def shutdown_timeout_ms do
+    case System.get_env("SHUTDOWN_TIMEOUT_MS") do
+      nil ->
+        get_in(validated_workflow_options(), [:agent, :shutdown_timeout_ms])
+
+      value ->
+        case Integer.parse(value) do
+          {ms, _} when ms > 0 -> ms
+          _ -> get_in(validated_workflow_options(), [:agent, :shutdown_timeout_ms])
+        end
+    end
   end
 
   @spec agent_command() :: String.t()
@@ -559,6 +578,7 @@ defmodule SymphonyElixir.Config do
     |> put_if_present(:fleet_pause_max_ms, positive_integer_value(Map.get(section, "fleet_pause_max_ms")))
     |> put_if_present(:fleet_pause_pattern_window_ms, positive_integer_value(Map.get(section, "fleet_pause_pattern_window_ms")))
     |> put_if_present(:fleet_pause_pattern_threshold, positive_integer_value(Map.get(section, "fleet_pause_pattern_threshold")))
+    |> put_if_present(:shutdown_timeout_ms, positive_integer_value(Map.get(section, "shutdown_timeout_ms")))
   end
 
   defp extract_agent_server_options(section) do

@@ -107,6 +107,7 @@ defmodule SymphonyElixir.TestSupport do
           max_turns: 20,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
+          shutdown_timeout_ms: 60_000,
           agent_command: "codex app-server",
           agent_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           agent_thread_sandbox: "workspace-write",
@@ -143,6 +144,7 @@ defmodule SymphonyElixir.TestSupport do
     max_turns = Keyword.get(config, :max_turns)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
+    shutdown_timeout_ms = Keyword.get(config, :shutdown_timeout_ms)
     agent_command = Keyword.get(config, :agent_command)
     agent_approval_policy = Keyword.get(config, :agent_approval_policy)
     agent_thread_sandbox = Keyword.get(config, :agent_thread_sandbox)
@@ -183,6 +185,7 @@ defmodule SymphonyElixir.TestSupport do
         "  max_turns: #{yaml_value(max_turns)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
+        "  shutdown_timeout_ms: #{yaml_value(shutdown_timeout_ms)}",
         "  command: #{yaml_value(agent_command)}",
         "  approval_policy: #{yaml_value(agent_approval_policy)}",
         "  thread_sandbox: #{yaml_value(agent_thread_sandbox)}",
