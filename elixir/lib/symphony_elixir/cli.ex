@@ -249,11 +249,9 @@ defmodule SymphonyElixir.CLI do
   end
 
   defp stop_supervisor(pid) do
-    try do
-      Supervisor.stop(pid, :shutdown, 10_000)
-    catch
-      :exit, _ -> :ok
-    end
+    Supervisor.stop(pid, :shutdown, 10_000)
+  catch
+    :exit, _ -> :ok
   end
 
   defp graceful_halt(:normal), do: System.halt(0)
