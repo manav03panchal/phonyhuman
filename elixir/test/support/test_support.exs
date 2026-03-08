@@ -117,6 +117,7 @@ defmodule SymphonyElixir.TestSupport do
           hook_after_run: nil,
           hook_before_remove: nil,
           hook_timeout_ms: 60_000,
+          hook_allow_shell_hooks: true,
           observability_enabled: true,
           observability_refresh_ms: 1_000,
           observability_render_interval_ms: 16,
@@ -152,6 +153,7 @@ defmodule SymphonyElixir.TestSupport do
     hook_after_run = Keyword.get(config, :hook_after_run)
     hook_before_remove = Keyword.get(config, :hook_before_remove)
     hook_timeout_ms = Keyword.get(config, :hook_timeout_ms)
+    hook_allow_shell_hooks = Keyword.get(config, :hook_allow_shell_hooks)
     observability_enabled = Keyword.get(config, :observability_enabled)
     observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
@@ -186,7 +188,10 @@ defmodule SymphonyElixir.TestSupport do
         "  turn_timeout_ms: #{yaml_value(agent_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(agent_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(agent_stall_timeout_ms)}",
-        hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
+        hooks_yaml(
+          hook_after_create, hook_before_run, hook_after_run, hook_before_remove,
+          hook_timeout_ms, hook_allow_shell_hooks
+        ),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
         "---",
@@ -219,12 +224,15 @@ defmodule SymphonyElixir.TestSupport do
 
   defp yaml_value(value), do: yaml_value(to_string(value))
 
-  defp hooks_yaml(nil, nil, nil, nil, timeout_ms), do: "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}"
+  defp hooks_yaml(nil, nil, nil, nil, timeout_ms, allow_shell_hooks) do
+    "hooks:\n  timeout_ms: #{yaml_value(timeout_ms)}\n  allow_shell_hooks: #{yaml_value(allow_shell_hooks)}"
+  end
 
-  defp hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, timeout_ms) do
+  defp hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, timeout_ms, allow_shell_hooks) do
     [
       "hooks:",
       "  timeout_ms: #{yaml_value(timeout_ms)}",
+      "  allow_shell_hooks: #{yaml_value(allow_shell_hooks)}",
       hook_entry("after_create", hook_after_create),
       hook_entry("before_run", hook_before_run),
       hook_entry("after_run", hook_after_run),
