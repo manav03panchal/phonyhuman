@@ -32,6 +32,7 @@ defmodule SymphonyElixir.AgentSupervisor do
     Task.Supervisor.terminate_child(__MODULE__, pid)
   end
 
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
       id: __MODULE__,
