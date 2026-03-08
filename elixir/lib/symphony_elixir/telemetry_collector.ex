@@ -52,6 +52,10 @@ defmodule SymphonyElixir.TelemetryCollector do
 
     case start_listener(port, opts) do
       {:ok, listener_ref} ->
+        # Unlink so a listener crash doesn't take down the collector;
+        # monitor instead to log and clear the ref.
+        Process.unlink(listener_ref)
+        listener_monitor = Process.monitor(listener_ref)
         bound = resolve_bound_port(listener_ref)
 
         {:ok,
@@ -59,14 +63,21 @@ defmodule SymphonyElixir.TelemetryCollector do
            sessions: %{},
            orchestrator: orchestrator,
            listener_ref: listener_ref,
+           listener_monitor: listener_monitor,
            port: port,
            bound_port: bound
          }}
 
       {:error, reason} ->
         Logger.warning("TelemetryCollector failed to start HTTP listener: #{inspect(reason)}")
-        {:ok, %{sessions: %{}, orchestrator: orchestrator, listener_ref: nil, port: port, bound_port: nil}}
+        {:ok, %{sessions: %{}, orchestrator: orchestrator, listener_ref: nil, listener_monitor: nil, port: port, bound_port: nil}}
     end
+  end
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{listener_monitor: ref} = state) do
+    Logger.warning("TelemetryCollector listener exited: #{inspect(reason)}")
+    {:noreply, %{state | listener_ref: nil, listener_monitor: nil, bound_port: nil}}
   end
 
   @impl true
@@ -94,11 +105,11 @@ defmodule SymphonyElixir.TelemetryCollector do
   end
 
   @impl true
-  def terminate(_reason, %{listener_ref: ref}) when ref != nil do
-    Supervisor.stop(ref, :normal)
+  def terminate(_reason, %{listener_ref: ref}) when is_pid(ref) do
+    if Process.alive?(ref), do: Supervisor.stop(ref, :normal, 5_000)
     :ok
-  rescue
-    _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
 
   def terminate(_reason, _state), do: :ok
@@ -371,9 +382,11 @@ defmodule SymphonyElixir.TelemetryCollector.Router do
   plug(Plug.Parsers,
     parsers: [:json],
     pass: ["application/json"],
-    json_decoder: Jason
+    json_decoder: Jason,
+    length: 1_000_000
   )
 
+  plug(SymphonyElixirWeb.Plugs.RateLimiter, namespace: :otel)
   plug(:match)
   plug(:dispatch)
 

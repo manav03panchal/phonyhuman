@@ -365,15 +365,17 @@ defmodule SymphonyElixir.AgentServer.Server do
       {:error, _reason} ->
         log_non_json_stream_line(payload_string, "turn stream")
 
-        emit_message(
-          on_message,
-          :malformed,
-          %{
-            payload: payload_string,
-            raw: payload_string
-          },
-          metadata_from_message(port, %{raw: payload_string})
-        )
+        unless shim_debug_line?(payload_string) do
+          emit_message(
+            on_message,
+            :malformed,
+            %{
+              payload: payload_string,
+              raw: payload_string
+            },
+            metadata_from_message(port, %{raw: payload_string})
+          )
+        end
 
         receive_loop(port, on_message, timeout_ms, "", tool_executor, auto_approve_requests)
     end
@@ -862,6 +864,13 @@ defmodule SymphonyElixir.AgentServer.Server do
         with_timeout_response(port, request_id, timeout_ms, "")
     end
   end
+
+  defp shim_debug_line?(data) when is_binary(data) do
+    trimmed = String.trim(data)
+    String.starts_with?(trimmed, "[claude-shim]") or String.starts_with?(trimmed, "[shim]")
+  end
+
+  defp shim_debug_line?(_data), do: false
 
   defp log_non_json_stream_line(data, stream_label) do
     text =

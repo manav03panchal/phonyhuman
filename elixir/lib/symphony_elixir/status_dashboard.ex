@@ -1244,7 +1244,7 @@ defmodule SymphonyElixir.StatusDashboard do
   defp humanize_agent_event(:startup_failed, message, _payload), do: "startup failed: #{format_reason(message)}"
   defp humanize_agent_event(:turn_failed, _message, payload), do: humanize_agent_method("turn/failed", payload)
   defp humanize_agent_event(:turn_cancelled, _message, _payload), do: "turn cancelled"
-  defp humanize_agent_event(:malformed, _message, _payload), do: "malformed JSON event from codex"
+  defp humanize_agent_event(:malformed, _message, _payload), do: "malformed JSON event from agent"
   defp humanize_agent_event(_event, _message, _payload), do: nil
 
   defp unwrap_agent_message_payload(%{} = message) do
