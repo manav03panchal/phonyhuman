@@ -160,9 +160,13 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
 
     log =
       capture_log(fn ->
-        send(pid, {:otel_metrics, "unknown-session-xyz", %{
-          "claude_code.token.usage" => [%{value: 100, attributes: %{"type" => "input"}}]
-        }})
+        send(
+          pid,
+          {:otel_metrics, "unknown-session-xyz",
+           %{
+             "claude_code.token.usage" => [%{value: 100, attributes: %{"type" => "input"}}]
+           }}
+        )
 
         # Allow GenServer to process
         _ = :sys.get_state(pid)
@@ -325,12 +329,16 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     end)
 
     # Step 1: OTel provides real-time token data
-    send(pid, {:otel_metrics, "sess-precedence", %{
-      "claude_code.token.usage" => [
-        %{value: 500, attributes: %{"type" => "input"}},
-        %{value: 200, attributes: %{"type" => "output"}}
-      ]
-    }})
+    send(
+      pid,
+      {:otel_metrics, "sess-precedence",
+       %{
+         "claude_code.token.usage" => [
+           %{value: 500, attributes: %{"type" => "input"}},
+           %{value: 200, attributes: %{"type" => "output"}}
+         ]
+       }}
+    )
 
     _ = :sys.get_state(pid)
 
@@ -346,20 +354,24 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     # Step 2: Stream-json turn/completed arrives with authoritative totals
     now = DateTime.utc_now()
 
-    send(pid, {:agent_worker_update, issue_id, %{
-      event: :notification,
-      payload: %{
-        "method" => "turn/completed",
-        "params" => %{
-          "usage" => %{
-            "input_tokens" => 520,
-            "output_tokens" => 210,
-            "total_tokens" => 730
-          }
-        }
-      },
-      timestamp: now
-    }})
+    send(
+      pid,
+      {:agent_worker_update, issue_id,
+       %{
+         event: :notification,
+         payload: %{
+           "method" => "turn/completed",
+           "params" => %{
+             "usage" => %{
+               "input_tokens" => 520,
+               "output_tokens" => 210,
+               "total_tokens" => 730
+             }
+           }
+         },
+         timestamp: now
+       }}
+    )
 
     _ = :sys.get_state(pid)
 

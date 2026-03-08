@@ -25,7 +25,8 @@ defmodule SymphonyElixir.Application do
 
     children = [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
-      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
+      SymphonyElixir.AgentSupervisor,
+      {SymphonyElixir.RestartMonitor, watched: [SymphonyElixir.AgentSupervisor]},
       SymphonyElixir.WorkflowStore,
       SymphonyElixir.Orchestrator,
       SymphonyElixir.TelemetryCollector,
@@ -36,9 +37,9 @@ defmodule SymphonyElixir.Application do
     Supervisor.start_link(
       children,
       strategy: :one_for_one,
-      max_restarts: 10,
-      max_seconds: 30,
-      name: SymphonyElixir.Supervisor
+      name: SymphonyElixir.Supervisor,
+      max_restarts: 3,
+      max_seconds: 5
     )
   end
 
