@@ -4,7 +4,7 @@ defmodule SymphonyElixir.AgentServer.Server do
   """
 
   require Logger
-  alias SymphonyElixir.{AgentServer.DynamicTool, Config}
+  alias SymphonyElixir.{AgentServer.DynamicTool, Config, LogRedactor}
 
   @initialize_id 1
   @thread_start_id 2
@@ -871,10 +871,12 @@ defmodule SymphonyElixir.AgentServer.Server do
       |> String.slice(0, @max_stream_log_bytes)
 
     if text != "" do
+      redacted_text = LogRedactor.redact(text)
+
       if String.match?(text, ~r/\b(error|warn|warning|failed|fatal|panic|exception)\b/i) do
-        Logger.warning("Agent #{stream_label} output: #{text}")
+        Logger.warning("Agent #{stream_label} output: #{redacted_text}")
       else
-        Logger.debug("Agent #{stream_label} output: #{text}")
+        Logger.debug("Agent #{stream_label} output: #{redacted_text}")
       end
     end
   end
