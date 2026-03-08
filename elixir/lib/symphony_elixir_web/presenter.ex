@@ -227,6 +227,7 @@ defmodule SymphonyElixirWeb.Presenter do
   end
 
   @doc false
+  @spec cache_hit_rate(number(), number()) :: float()
   def cache_hit_rate(_input, cache_read) when cache_read == 0, do: 0.0
 
   def cache_hit_rate(input, cache_read) do

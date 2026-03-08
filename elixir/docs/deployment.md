@@ -113,9 +113,9 @@ are available inside the container.
 
 ## Health Check
 
-The container health check probes `GET /api/v1/state` on port 4000.
-Once HUM-41 adds a dedicated `/health` endpoint, the health check can be
-updated to use that instead.
+The container health check probes `GET /health` on port 4000. This
+lightweight endpoint returns 200 when the orchestrator is running and 503
+during graceful shutdown.
 
 ## Running Standalone (without Compose)
 

@@ -584,7 +584,7 @@ defmodule SymphonyElixir.Config do
     agent_subset = Map.take(agent, @agent_server_keys)
     legacy_subset = Map.take(legacy, @agent_server_keys)
 
-    fallback_keys = Map.keys(legacy_subset) -- Map.keys(agent_subset) -- Map.keys(agent_server_subset)
+    fallback_keys = Map.keys(legacy_subset) -- (Map.keys(agent_subset) -- Map.keys(agent_server_subset))
 
     if fallback_keys != [] do
       Logger.warning("Config section [codex] is deprecated, use [agent] instead")

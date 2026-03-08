@@ -74,9 +74,9 @@ WORKDIR /home/symphony
 
 EXPOSE 4000
 
-# Health check – uses /api/v1/state until /health (HUM-41) is available.
+# Health check – lightweight /health endpoint (HUM-41).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -sf http://localhost:4000/api/v1/state > /dev/null || exit 1
+  CMD curl -sf http://localhost:4000/health > /dev/null || exit 1
 
 # The escript requires the acknowledgement flag. Configure the server to
 # bind 0.0.0.0 so it is reachable from outside the container.
