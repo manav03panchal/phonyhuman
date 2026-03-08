@@ -22,7 +22,8 @@ defmodule SymphonyElixirWeb.Endpoint do
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Jason
+    json_decoder: Jason,
+    length: 1_000_000
   )
 
   plug(Plug.MethodOverride)

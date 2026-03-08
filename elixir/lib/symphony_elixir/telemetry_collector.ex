@@ -155,6 +155,7 @@ defmodule SymphonyElixir.TelemetryCollector do
     case Enum.find(children, fn {id, _, _, _} -> id == :listener end) do
       {:listener, listener_pid, _, _} when is_pid(listener_pid) ->
         state = :sys.get_state(listener_pid)
+
         case state do
           %{local_info: {_ip, port}} when is_integer(port) -> port
           _ -> nil
@@ -370,9 +371,11 @@ defmodule SymphonyElixir.TelemetryCollector.Router do
   plug(Plug.Parsers,
     parsers: [:json],
     pass: ["application/json"],
-    json_decoder: Jason
+    json_decoder: Jason,
+    length: 1_000_000
   )
 
+  plug(SymphonyElixirWeb.Plugs.RateLimiter, namespace: :otel)
   plug(:match)
   plug(:dispatch)
 
