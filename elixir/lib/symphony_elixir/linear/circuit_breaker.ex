@@ -50,7 +50,7 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @spec call((() -> result), keyword()) :: result | {:error, :circuit_open}
+  @spec call((-> result), keyword()) :: result | {:error, :circuit_open}
         when result: term()
   def call(fun, opts \\ []) when is_function(fun, 0) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -132,9 +132,7 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
   end
 
   defp apply_outcome(:success, %State{status: :half_open} = state) do
-    Logger.info(
-      "Circuit breaker: half_open -> closed (probe succeeded, failure_count=#{state.failure_count})"
-    )
+    Logger.info("Circuit breaker: half_open -> closed (probe succeeded, failure_count=#{state.failure_count})")
 
     %State{state | status: :closed, failure_count: 0, opened_at: nil}
   end
@@ -142,9 +140,7 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
   defp apply_outcome(:failure, %State{status: :half_open} = state) do
     new_count = state.failure_count + 1
 
-    Logger.warning(
-      "Circuit breaker: half_open -> open (probe failed, failure_count=#{new_count})"
-    )
+    Logger.warning("Circuit breaker: half_open -> open (probe failed, failure_count=#{new_count})")
 
     %State{state | status: :open, failure_count: new_count, opened_at: now_ms()}
   end
@@ -157,9 +153,7 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
     new_count = count + 1
 
     if new_count >= threshold do
-      Logger.warning(
-        "Circuit breaker: closed -> open (failure_count=#{new_count}, threshold=#{threshold})"
-      )
+      Logger.warning("Circuit breaker: closed -> open (failure_count=#{new_count}, threshold=#{threshold})")
 
       %State{state | status: :open, failure_count: new_count, opened_at: now_ms()}
     else

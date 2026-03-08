@@ -139,10 +139,11 @@ defmodule SymphonyElixir.Orchestrator do
 
               next_attempt = next_retry_attempt_from_running(running_entry)
 
-              state = schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                error: "agent exited: #{inspect(reason)}"
-              })
+              state =
+                schedule_issue_retry(state, issue_id, next_attempt, %{
+                  identifier: running_entry.identifier,
+                  error: "agent exited: #{inspect(reason)}"
+                })
 
               if is_probe, do: extend_fleet_pause(state), else: state
           end
@@ -1121,8 +1122,7 @@ defmodule SymphonyElixir.Orchestrator do
         agent_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
         turn_count: turn_count_for_update(turn_count, running_entry.session_id, update),
         agent_cache_read_tokens: agent_cache_read + Map.get(token_delta, :cache_read_tokens, 0),
-        agent_cache_creation_tokens:
-          agent_cache_creation + Map.get(token_delta, :cache_creation_tokens, 0),
+        agent_cache_creation_tokens: agent_cache_creation + Map.get(token_delta, :cache_creation_tokens, 0),
         agent_cost_usd: agent_cost_usd + Map.get(token_delta, :cost_usd, 0.0),
         agent_model: if(delta_model, do: delta_model, else: Map.get(running_entry, :agent_model))
       }),
@@ -2058,15 +2058,19 @@ defmodule SymphonyElixir.Orchestrator do
   defp otel_cost_value(_), do: nil
 
   defp maybe_update_otel(entry, _key, nil), do: entry
+
   defp maybe_update_otel(entry, key, value) when is_integer(value) and value >= 0 do
     Map.put(entry, key, value)
   end
+
   defp maybe_update_otel(entry, _key, _value), do: entry
 
   defp maybe_update_otel_float(entry, _key, nil), do: entry
+
   defp maybe_update_otel_float(entry, key, value) when is_number(value) and value >= 0 do
     Map.put(entry, key, value / 1)
   end
+
   defp maybe_update_otel_float(entry, _key, _value), do: entry
 
   defp merge_otel_tool_executions(entry, metrics) do
@@ -2075,11 +2079,13 @@ defmodule SymphonyElixir.Orchestrator do
     tool_executions =
       Enum.flat_map(events, fn
         %{name: "claude_code.tool_result", attributes: attrs} when is_map(attrs) ->
-          [%{
-            name: Map.get(attrs, "tool_name", "unknown"),
-            duration_ms: otel_numeric(Map.get(attrs, "duration_ms", 0)),
-            success: Map.get(attrs, "success", true)
-          }]
+          [
+            %{
+              name: Map.get(attrs, "tool_name", "unknown"),
+              duration_ms: otel_numeric(Map.get(attrs, "duration_ms", 0)),
+              success: Map.get(attrs, "success", true)
+            }
+          ]
 
         _ ->
           []
@@ -2164,11 +2170,13 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp otel_numeric(value) when is_integer(value), do: value
   defp otel_numeric(value) when is_float(value), do: round(value)
+
   defp otel_numeric(value) when is_binary(value) do
     case Integer.parse(value) do
       {n, _} -> n
       :error -> 0
     end
   end
+
   defp otel_numeric(_), do: 0
 end
