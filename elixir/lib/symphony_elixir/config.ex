@@ -8,6 +8,8 @@ defmodule SymphonyElixir.Config do
   alias NimbleOptions
   alias SymphonyElixir.Workflow
 
+  @sensitive_fields [:api_key, :linear_api_token]
+
   @default_active_states ["Todo", "In Progress"]
   @default_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
   @default_linear_endpoint "https://api.linear.app/graphql"
@@ -197,6 +199,12 @@ defmodule SymphonyElixir.Config do
           before_remove: String.t() | nil,
           timeout_ms: pos_integer()
         }
+
+  @spec sensitive_fields() :: [atom()]
+  def sensitive_fields, do: @sensitive_fields
+
+  @spec sensitive?(atom()) :: boolean()
+  def sensitive?(field) when is_atom(field), do: field in @sensitive_fields
 
   @spec current_workflow() :: {:ok, workflow_payload()} | {:error, term()}
   def current_workflow do
