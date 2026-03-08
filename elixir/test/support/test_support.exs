@@ -7,10 +7,11 @@ defmodule SymphonyElixir.TestSupport do
       import ExUnit.CaptureLog
 
       alias SymphonyElixir.AgentRunner
-      alias SymphonyElixir.CLI
       alias SymphonyElixir.AgentServer.Server, as: AppServer
+      alias SymphonyElixir.CLI
       alias SymphonyElixir.Config
       alias SymphonyElixir.HttpServer
+      alias SymphonyElixir.Linear.CircuitBreaker
       alias SymphonyElixir.Linear.Client
       alias SymphonyElixir.Linear.Issue
       alias SymphonyElixir.Orchestrator
@@ -35,7 +36,8 @@ defmodule SymphonyElixir.TestSupport do
         workflow_file = Path.join(workflow_root, "WORKFLOW.md")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
-        if Process.whereis(SymphonyElixir.WorkflowStore), do: SymphonyElixir.WorkflowStore.force_reload()
+        if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
+        if Process.whereis(CircuitBreaker), do: CircuitBreaker.reset()
         stop_default_http_server()
 
         on_exit(fn ->

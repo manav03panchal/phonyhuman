@@ -238,6 +238,10 @@ defmodule SymphonyElixir.Orchestrator do
          true <- available_slots(state) > 0 do
       choose_issues(issues, state)
     else
+      {:error, :circuit_open} ->
+        Logger.warning("Linear API circuit breaker is open; skipping poll cycle")
+        state
+
       {:error, :missing_linear_api_token} ->
         Logger.error("Linear API token missing in WORKFLOW.md")
         state

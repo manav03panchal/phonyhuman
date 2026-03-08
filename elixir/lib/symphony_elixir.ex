@@ -22,12 +22,15 @@ defmodule SymphonyElixir.Application do
   @impl true
   def start(_type, _args) do
     :ok = SymphonyElixir.LogFile.configure()
+    :persistent_term.put(:symphony_started_at, System.monotonic_time(:second))
+    :persistent_term.put(:symphony_shutting_down, false)
 
     children = [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
       SymphonyElixir.AgentSupervisor,
       {SymphonyElixir.RestartMonitor, watched: [SymphonyElixir.AgentSupervisor]},
       SymphonyElixir.WorkflowStore,
+      SymphonyElixir.Linear.CircuitBreaker,
       SymphonyElixir.Orchestrator,
       SymphonyElixir.TelemetryCollector,
       SymphonyElixir.HttpServer,
@@ -41,6 +44,12 @@ defmodule SymphonyElixir.Application do
       max_restarts: 3,
       max_seconds: 5
     )
+  end
+
+  @impl true
+  def prep_stop(state) do
+    :persistent_term.put(:symphony_shutting_down, true)
+    state
   end
 
   @impl true
