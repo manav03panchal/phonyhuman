@@ -41,8 +41,8 @@ defmodule SymphonyElixir.Application do
       children,
       strategy: :one_for_one,
       name: SymphonyElixir.Supervisor,
-      max_restarts: 3,
-      max_seconds: 5
+      max_restarts: 10,
+      max_seconds: 30
     )
   end
 

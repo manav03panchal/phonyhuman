@@ -166,10 +166,19 @@ defmodule SymphonyElixir.Workspace do
 
   defp run_hook(command, workspace, issue_context, hook_name) do
     hooks = Config.workspace_hooks()
-    timeout_ms = hooks[:timeout_ms]
     allow_shell_hooks = Map.get(hooks, :allow_shell_hooks, true)
 
-    warn_on_dangerous_patterns(command, hook_name, allow_shell_hooks)
+    case warn_on_dangerous_patterns(command, hook_name, allow_shell_hooks) do
+      {:error, reason} ->
+        {:error, reason}
+
+      _ ->
+        run_hook_command(command, workspace, issue_context, hook_name, hooks)
+    end
+  end
+
+  defp run_hook_command(command, workspace, issue_context, hook_name, hooks) do
+    timeout_ms = hooks[:timeout_ms]
 
     Logger.info("Running workspace hook hook=#{hook_name} command=#{inspect(command)} #{issue_log_context(issue_context)} workspace=#{workspace}")
 
@@ -208,11 +217,15 @@ defmodule SymphonyElixir.Workspace do
             "command=#{inspect(command)} patterns=#{inspect(patterns)}"
         )
 
-      {:error, {:dangerous_hook_command, _cmd, patterns}} ->
+        :ok
+
+      {:error, {:dangerous_hook_command, _cmd, patterns}} = error ->
         Logger.error(
           "Workspace hook rejected: dangerous shell metacharacters hook=#{hook_name} " <>
             "command=#{inspect(command)} patterns=#{inspect(patterns)}"
         )
+
+        error
     end
   end
 
