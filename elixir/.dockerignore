@@ -1,0 +1,48 @@
+# Build artifacts
+/_build/
+/deps/
+/cover/
+/doc/
+/tmp/
+/bin/
+
+# Logs
+/log/
+/logs/
+
+# Elixir tooling
+/.elixir_ls/
+/.fetch/
+
+# Archives and packages
+*.ez
+symphony_elixir-*.tar
+
+# Environment and auth
+.env
+.env.*
+.secrets
+.credentials
+
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Git
+.git/
+.gitignore
+
+# VM crash dumps
+erl_crash.dump
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Codex artifacts
+.codex/
+status.txt

@@ -5,6 +5,7 @@ defmodule SymphonyElixir.Workspace do
 
   require Logger
   alias SymphonyElixir.Config
+  alias SymphonyElixir.HookValidator
 
   @excluded_entries MapSet.new([".elixir_ls", "tmp"])
 
@@ -164,9 +165,15 @@ defmodule SymphonyElixir.Workspace do
   defp ignore_hook_failure({:error, _reason}), do: :ok
 
   defp run_hook(command, workspace, issue_context, hook_name) do
-    timeout_ms = Config.workspace_hooks()[:timeout_ms]
+    hooks = Config.workspace_hooks()
+    timeout_ms = hooks[:timeout_ms]
+    allow_shell_hooks = Map.get(hooks, :allow_shell_hooks, true)
 
-    Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace}")
+    warn_on_dangerous_patterns(command, hook_name, allow_shell_hooks)
+
+    Logger.info("Running workspace hook hook=#{hook_name} command=#{inspect(command)} #{issue_log_context(issue_context)} workspace=#{workspace}")
+
+    start_time = System.monotonic_time(:millisecond)
 
     task =
       Task.async(fn ->
@@ -175,25 +182,51 @@ defmodule SymphonyElixir.Workspace do
 
     case Task.yield(task, timeout_ms) do
       {:ok, cmd_result} ->
-        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+        duration_ms = System.monotonic_time(:millisecond) - start_time
+        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name, command, duration_ms)
 
       nil ->
         Task.shutdown(task, :brutal_kill)
+        duration_ms = System.monotonic_time(:millisecond) - start_time
 
-        Logger.warning("Workspace hook timed out hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} timeout_ms=#{timeout_ms}")
+        Logger.warning(
+          "Workspace hook timed out hook=#{hook_name} command=#{inspect(command)} #{issue_log_context(issue_context)} workspace=#{workspace} timeout_ms=#{timeout_ms} duration_ms=#{duration_ms}"
+        )
 
         {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
     end
   end
 
-  defp handle_hook_command_result({_output, 0}, _workspace, _issue_id, _hook_name) do
+  defp warn_on_dangerous_patterns(command, hook_name, allow_shell_hooks) do
+    case HookValidator.validate(command, allow_shell_hooks) do
+      :ok ->
+        :ok
+
+      {:warn, patterns} ->
+        Logger.warning(
+          "Workspace hook contains shell metacharacters hook=#{hook_name} " <>
+            "command=#{inspect(command)} patterns=#{inspect(patterns)}"
+        )
+
+      {:error, {:dangerous_hook_command, _cmd, patterns}} ->
+        Logger.error(
+          "Workspace hook rejected: dangerous shell metacharacters hook=#{hook_name} " <>
+            "command=#{inspect(command)} patterns=#{inspect(patterns)}"
+        )
+    end
+  end
+
+  defp handle_hook_command_result({_output, 0}, workspace, issue_context, hook_name, command, duration_ms) do
+    Logger.info("Workspace hook completed hook=#{hook_name} command=#{inspect(command)} #{issue_log_context(issue_context)} workspace=#{workspace} exit_code=0 duration_ms=#{duration_ms}")
     :ok
   end
 
-  defp handle_hook_command_result({output, status}, workspace, issue_context, hook_name) do
+  defp handle_hook_command_result({output, status}, workspace, issue_context, hook_name, command, duration_ms) do
     sanitized_output = sanitize_hook_output_for_log(output)
 
-    Logger.warning("Workspace hook failed hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} status=#{status} output=#{inspect(sanitized_output)}")
+    Logger.warning(
+      "Workspace hook failed hook=#{hook_name} command=#{inspect(command)} #{issue_log_context(issue_context)} workspace=#{workspace} exit_code=#{status} duration_ms=#{duration_ms} output=#{inspect(sanitized_output)}"
+    )
 
     {:error, {:workspace_hook_failed, hook_name, status, output}}
   end
