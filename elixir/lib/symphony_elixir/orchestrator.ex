@@ -56,6 +56,15 @@ defmodule SymphonyElixir.Orchestrator do
     ]
   end
 
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      shutdown: :infinity
+    }
+  end
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -64,6 +73,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   @impl true
   def init(_opts) do
+    Process.flag(:trap_exit, true)
     now_ms = System.monotonic_time(:millisecond)
 
     state = %State{
@@ -83,25 +93,33 @@ defmodule SymphonyElixir.Orchestrator do
 
   @impl true
   def handle_info(:tick, state) do
-    state = refresh_runtime_config(state)
-    state = %{state | poll_check_in_progress: true, next_poll_due_at_ms: nil}
+    if shutting_down?() do
+      {:noreply, state}
+    else
+      state = refresh_runtime_config(state)
+      state = %{state | poll_check_in_progress: true, next_poll_due_at_ms: nil}
 
-    notify_dashboard()
-    :ok = schedule_poll_cycle_start()
-    {:noreply, state}
+      notify_dashboard()
+      :ok = schedule_poll_cycle_start()
+      {:noreply, state}
+    end
   end
 
   def handle_info(:run_poll_cycle, state) do
-    state = refresh_runtime_config(state)
-    state = maybe_dispatch(state)
-    now_ms = System.monotonic_time(:millisecond)
-    next_poll_due_at_ms = now_ms + state.poll_interval_ms
-    :ok = schedule_tick(state.poll_interval_ms)
+    if shutting_down?() do
+      {:noreply, state}
+    else
+      state = refresh_runtime_config(state)
+      state = maybe_dispatch(state)
+      now_ms = System.monotonic_time(:millisecond)
+      next_poll_due_at_ms = now_ms + state.poll_interval_ms
+      :ok = schedule_tick(state.poll_interval_ms)
 
-    state = %{state | poll_check_in_progress: false, next_poll_due_at_ms: next_poll_due_at_ms}
+      state = %{state | poll_check_in_progress: false, next_poll_due_at_ms: next_poll_due_at_ms}
 
-    notify_dashboard()
-    {:noreply, state}
+      notify_dashboard()
+      {:noreply, state}
+    end
   end
 
   def handle_info(
@@ -994,6 +1012,13 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @impl true
+  def terminate(_reason, %State{running: running} = state) do
+    drain_running_agents(running)
+    _ = state
+    :ok
+  end
+
+  @impl true
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
     now = DateTime.utc_now()
@@ -1240,9 +1265,85 @@ defmodule SymphonyElixir.Orchestrator do
     can_dispatch?(state) and available_slots(state) > 0 and state_slots_available?(issue, state.running)
   end
 
+  # --- Shutdown drain logic ---
+
+  defp shutting_down? do
+    :persistent_term.get(:symphony_shutting_down, false) == true
+  end
+
+  defp drain_running_agents(running) when map_size(running) == 0 do
+    Logger.info("Shutdown: no active agents to drain")
+  end
+
+  defp drain_running_agents(running) do
+    agent_count = map_size(running)
+    timeout_ms = Config.shutdown_timeout_ms()
+    Logger.info("Draining #{agent_count} agents (timeout: #{timeout_ms}ms)...")
+
+    refs_to_agents = collect_agent_refs(running)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    remaining = drain_agents(refs_to_agents, deadline)
+
+    force_kill_remaining(remaining)
+
+    force_killed = map_size(remaining)
+    finished = agent_count - force_killed
+
+    Logger.info("Shutdown drain complete: #{finished} finished, #{force_killed} force-killed")
+  end
+
+  defp collect_agent_refs(running) do
+    Enum.reduce(running, %{}, fn {issue_id, entry}, acc ->
+      case entry do
+        %{ref: ref, pid: pid, identifier: identifier} when is_reference(ref) ->
+          Map.put(acc, ref, %{issue_id: issue_id, pid: pid, identifier: identifier})
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp force_kill_remaining(remaining) when map_size(remaining) == 0, do: :ok
+
+  defp force_kill_remaining(remaining) do
+    Logger.warning("Timeout: force-killing #{map_size(remaining)} agents")
+
+    Enum.each(remaining, fn {_ref, %{pid: pid, identifier: identifier}} ->
+      terminate_task(pid)
+      cleanup_issue_workspace(identifier)
+    end)
+  end
+
+  defp drain_agents(refs_to_agents, _deadline) when map_size(refs_to_agents) == 0,
+    do: refs_to_agents
+
+  defp drain_agents(refs_to_agents, deadline) do
+    time_left = deadline - System.monotonic_time(:millisecond)
+
+    if time_left <= 0 do
+      refs_to_agents
+    else
+      receive do
+        {:DOWN, ref, :process, _pid, _reason} ->
+          case Map.pop(refs_to_agents, ref) do
+            {%{identifier: identifier}, rest} ->
+              Logger.info("Agent #{identifier} finished during shutdown drain")
+              drain_agents(rest, deadline)
+
+            {nil, _} ->
+              drain_agents(refs_to_agents, deadline)
+          end
+      after
+        time_left ->
+          refs_to_agents
+      end
+    end
+  end
+
   # --- Fleet pause logic ---
 
-  defp can_dispatch?(%State{} = state), do: !fleet_paused?(state)
+  defp can_dispatch?(%State{} = state), do: !fleet_paused?(state) and !shutting_down?()
 
   @doc false
   @spec fleet_paused_for_test?(State.t()) :: boolean()
