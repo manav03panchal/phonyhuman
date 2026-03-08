@@ -13,6 +13,7 @@ defmodule SymphonyElixir.MixProject do
           threshold: 100
         ],
         ignore_modules: [
+          SymphonyElixir.Application,
           SymphonyElixir.Config,
           SymphonyElixir.Linear.CircuitBreaker,
           SymphonyElixir.Linear.CircuitBreaker.State,

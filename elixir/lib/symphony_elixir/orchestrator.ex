@@ -488,7 +488,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp last_activity_timestamp(_running_entry), do: nil
 
   defp terminate_task(pid) when is_pid(pid) do
-    case Task.Supervisor.terminate_child(SymphonyElixir.TaskSupervisor, pid) do
+    case SymphonyElixir.AgentSupervisor.stop_agent(pid) do
       :ok ->
         :ok
 
@@ -663,7 +663,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp do_dispatch_issue(%State{} = state, issue, attempt) do
     recipient = self()
 
-    case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
+    case SymphonyElixir.AgentSupervisor.start_agent(fn ->
            AgentRunner.run(issue, recipient, attempt: attempt)
          end) do
       {:ok, pid} ->
@@ -1398,14 +1398,17 @@ defmodule SymphonyElixir.Orchestrator do
   def parse_retry_after_for_test(update), do: parse_retry_after(update)
 
   @doc false
+  @spec extract_token_delta_for_test(map(), map()) :: map()
   def extract_token_delta_for_test(running_entry, update),
     do: extract_token_delta(running_entry, update)
 
   @doc false
+  @spec apply_token_delta_for_test(map(), map()) :: map()
   def apply_token_delta_for_test(agent_totals, token_delta),
     do: apply_token_delta(agent_totals, token_delta)
 
   @doc false
+  @spec integrate_agent_update_for_test(map(), map()) :: map()
   def integrate_agent_update_for_test(running_entry, update),
     do: integrate_agent_update(running_entry, update)
 
@@ -1481,7 +1484,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp do_dispatch_probe(%State{} = state, issue) do
     recipient = self()
 
-    case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
+    case SymphonyElixir.AgentSupervisor.start_agent(fn ->
            AgentRunner.run(issue, recipient, attempt: nil)
          end) do
       {:ok, pid} ->

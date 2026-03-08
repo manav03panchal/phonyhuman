@@ -1,0 +1,53 @@
+# docker-compose.yml — Symphony (phonyhuman) orchestrator
+#
+# Usage:
+#   cp .env.example .env   # fill in secrets
+#   docker-compose up -d
+#
+# The orchestrator reads its configuration from WORKFLOW.md, which must be
+# mounted into the container.  Environment variables referenced inside
+# WORKFLOW.md (e.g. $LINEAR_API_KEY) are passed through via the env_file.
+
+services:
+  orchestrator:
+    build:
+      context: ./elixir
+      dockerfile: Dockerfile
+    image: phonyhuman:latest
+    container_name: phonyhuman
+    restart: unless-stopped
+    ports:
+      - "${SYMPHONY_PORT:-4000}:4000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - LINEAR_API_KEY
+      - SECRET_KEY_BASE
+      - SOURCE_REPO_URL
+      - LINEAR_ASSIGNEE
+      - PHI_LOG_LEVEL
+    volumes:
+      # Workflow configuration (required)
+      - ./WORKFLOW.md:/etc/symphony/WORKFLOW.md:ro
+      # Persistent workspaces survive container restarts
+      - symphony_workspaces:/var/symphony/workspaces
+      # Logs
+      - symphony_logs:/var/log/symphony
+      # Git credentials – mount host SSH keys read-only
+      - ${HOME}/.ssh:/home/symphony/.ssh:ro
+      - ${HOME}/.gitconfig:/home/symphony/.gitconfig:ro
+      # Optional: mount claude CLI binary from host
+      # - /usr/local/bin/claude:/usr/local/bin/claude:ro
+      # Optional: mount gh CLI binary from host
+      # - /usr/local/bin/gh:/usr/local/bin/gh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4000/api/v1/state"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  symphony_workspaces:
+  symphony_logs:

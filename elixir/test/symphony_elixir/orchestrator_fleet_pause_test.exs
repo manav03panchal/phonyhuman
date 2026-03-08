@@ -86,13 +86,17 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
       :sys.replace_state(pid, fn _ -> state_with_issue end)
 
       # Send a usage_cap error
-      send(pid, {:agent_worker_update, issue_id, %{
-        event: :turn_failed,
-        timestamp: DateTime.utc_now(),
-        error_type: "usage_cap",
-        is_global: true,
-        retry_after: 120_000
-      }})
+      send(
+        pid,
+        {:agent_worker_update, issue_id,
+         %{
+           event: :turn_failed,
+           timestamp: DateTime.utc_now(),
+           error_type: "usage_cap",
+           is_global: true,
+           retry_after: 120_000
+         }}
+      )
 
       # Give the GenServer time to process
       Process.sleep(50)
@@ -157,12 +161,16 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
 
       # Send 3 rate_limit errors in rapid succession
       for id <- issue_ids do
-        send(pid, {:agent_worker_update, id, %{
-          event: :turn_failed,
-          timestamp: DateTime.utc_now(),
-          error_type: "rate_limit",
-          is_global: false
-        }})
+        send(
+          pid,
+          {:agent_worker_update, id,
+           %{
+             event: :turn_failed,
+             timestamp: DateTime.utc_now(),
+             error_type: "rate_limit",
+             is_global: false
+           }}
+        )
 
         Process.sleep(10)
       end
@@ -219,12 +227,16 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
       state_with_issue = %{initial_state | running: Map.put(initial_state.running, issue_id, running_entry)}
       :sys.replace_state(pid, fn _ -> state_with_issue end)
 
-      send(pid, {:agent_worker_update, issue_id, %{
-        event: :turn_failed,
-        timestamp: DateTime.utc_now(),
-        error_type: "rate_limit",
-        is_global: false
-      }})
+      send(
+        pid,
+        {:agent_worker_update, issue_id,
+         %{
+           event: :turn_failed,
+           timestamp: DateTime.utc_now(),
+           error_type: "rate_limit",
+           is_global: false
+         }}
+      )
 
       Process.sleep(50)
 
@@ -348,10 +360,14 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
       :sys.replace_state(pid, fn _ -> state_with_failures end)
 
       # Send successful turn completion
-      send(pid, {:agent_worker_update, issue_id, %{
-        event: :turn_completed,
-        timestamp: DateTime.utc_now()
-      }})
+      send(
+        pid,
+        {:agent_worker_update, issue_id,
+         %{
+           event: :turn_completed,
+           timestamp: DateTime.utc_now()
+         }}
+      )
 
       Process.sleep(50)
 
@@ -386,10 +402,7 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
 
       # Set fleet paused state
       :sys.replace_state(pid, fn state ->
-        %{state |
-          fleet_paused_until: DateTime.add(DateTime.utc_now(), 300, :second),
-          fleet_pause_reason: "Test pause"
-        }
+        %{state | fleet_paused_until: DateTime.add(DateTime.utc_now(), 300, :second), fleet_pause_reason: "Test pause"}
       end)
 
       snapshot = Orchestrator.snapshot(orchestrator_name, 5_000)

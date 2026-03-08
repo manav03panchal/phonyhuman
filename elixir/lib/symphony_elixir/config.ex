@@ -6,6 +6,7 @@ defmodule SymphonyElixir.Config do
   require Logger
 
   alias NimbleOptions
+  alias SymphonyElixir.HookValidator
   alias SymphonyElixir.Workflow
 
   @sensitive_fields [:api_key, :linear_api_token]
@@ -154,7 +155,8 @@ defmodule SymphonyElixir.Config do
                                  before_run: [type: {:or, [:string, nil]}, default: nil],
                                  after_run: [type: {:or, [:string, nil]}, default: nil],
                                  before_remove: [type: {:or, [:string, nil]}, default: nil],
-                                 timeout_ms: [type: :pos_integer, default: @default_hook_timeout_ms]
+                                 timeout_ms: [type: :pos_integer, default: @default_hook_timeout_ms],
+                                 allow_shell_hooks: [type: :boolean, default: true]
                                ]
                              ],
                              observability: [
@@ -197,7 +199,8 @@ defmodule SymphonyElixir.Config do
           before_run: String.t() | nil,
           after_run: String.t() | nil,
           before_remove: String.t() | nil,
-          timeout_ms: pos_integer()
+          timeout_ms: pos_integer(),
+          allow_shell_hooks: boolean()
         }
 
   @spec sensitive_fields() :: [atom()]
@@ -273,8 +276,14 @@ defmodule SymphonyElixir.Config do
       before_run: Map.get(hooks, :before_run),
       after_run: Map.get(hooks, :after_run),
       before_remove: Map.get(hooks, :before_remove),
-      timeout_ms: Map.get(hooks, :timeout_ms)
+      timeout_ms: Map.get(hooks, :timeout_ms),
+      allow_shell_hooks: Map.get(hooks, :allow_shell_hooks, true)
     }
+  end
+
+  @spec allow_shell_hooks?() :: boolean()
+  def allow_shell_hooks? do
+    get_in(validated_workflow_options(), [:hooks, :allow_shell_hooks])
   end
 
   @spec hook_timeout_ms() :: pos_integer()
@@ -420,8 +429,9 @@ defmodule SymphonyElixir.Config do
          :ok <- require_tracker_kind(),
          :ok <- require_linear_token(),
          :ok <- require_linear_project(),
-         :ok <- require_valid_agent_runtime_settings() do
-      require_agent_command()
+         :ok <- require_valid_agent_runtime_settings(),
+         :ok <- require_agent_command() do
+      validate_hook_commands()
     end
   end
 
@@ -489,6 +499,12 @@ defmodule SymphonyElixir.Config do
       {:ok, _settings} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp validate_hook_commands do
+    hooks = workspace_hooks()
+    allow = hooks.allow_shell_hooks
+    HookValidator.validate_all_hooks(hooks, allow)
   end
 
   defp validated_workflow_options do
@@ -560,6 +576,7 @@ defmodule SymphonyElixir.Config do
     |> put_if_present(:after_run, hook_command_value(Map.get(section, "after_run")))
     |> put_if_present(:before_remove, hook_command_value(Map.get(section, "before_remove")))
     |> put_if_present(:timeout_ms, positive_integer_value(Map.get(section, "timeout_ms")))
+    |> put_if_present(:allow_shell_hooks, boolean_value(Map.get(section, "allow_shell_hooks")))
   end
 
   defp extract_observability_options(section) do
@@ -584,7 +601,7 @@ defmodule SymphonyElixir.Config do
     agent_subset = Map.take(agent, @agent_server_keys)
     legacy_subset = Map.take(legacy, @agent_server_keys)
 
-    fallback_keys = Map.keys(legacy_subset) -- Map.keys(agent_subset) -- Map.keys(agent_server_subset)
+    fallback_keys = Map.keys(legacy_subset) -- (Map.keys(agent_subset) -- Map.keys(agent_server_subset))
 
     if fallback_keys != [] do
       Logger.warning("Config section [codex] is deprecated, use [agent] instead")
