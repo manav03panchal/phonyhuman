@@ -488,7 +488,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp last_activity_timestamp(_running_entry), do: nil
 
   defp terminate_task(pid) when is_pid(pid) do
-    case Task.Supervisor.terminate_child(SymphonyElixir.TaskSupervisor, pid) do
+    case SymphonyElixir.AgentSupervisor.stop_agent(pid) do
       :ok ->
         :ok
 
@@ -663,7 +663,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp do_dispatch_issue(%State{} = state, issue, attempt) do
     recipient = self()
 
-    case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
+    case SymphonyElixir.AgentSupervisor.start_agent(fn ->
            AgentRunner.run(issue, recipient, attempt: attempt)
          end) do
       {:ok, pid} ->
@@ -1484,7 +1484,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp do_dispatch_probe(%State{} = state, issue) do
     recipient = self()
 
-    case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
+    case SymphonyElixir.AgentSupervisor.start_agent(fn ->
            AgentRunner.run(issue, recipient, attempt: nil)
          end) do
       {:ok, pid} ->
