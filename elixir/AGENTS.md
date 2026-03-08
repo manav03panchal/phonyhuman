@@ -1,6 +1,6 @@
 # Symphony Elixir
 
-This directory contains the Elixir agent orchestration service that polls Linear, creates per-issue workspaces, and runs Codex in app-server mode.
+This directory contains the Elixir agent orchestration service that polls Linear, creates per-issue workspaces, and runs Claude Code agents.
 
 ## Environment
 
@@ -12,14 +12,9 @@ This directory contains the Elixir agent orchestration service that polls Linear
 ## Codebase-Specific Conventions
 
 - Runtime config is loaded from `WORKFLOW.md` front matter via `SymphonyElixir.Workflow` and `SymphonyElixir.Config`.
-- Keep the implementation aligned with [`../SPEC.md`](../SPEC.md) where practical.
-  - The implementation may be a superset of the spec.
-  - The implementation must not conflict with the spec.
-  - If implementation changes meaningfully alter the intended behavior, update the spec in the same
-    change where practical so the spec stays current.
 - Prefer adding config access through `SymphonyElixir.Config` instead of ad-hoc env reads.
 - Workspace safety is critical:
-  - Never run Codex turn cwd in source repo.
+  - Never run Claude Code turn cwd in source repo.
   - Workspaces must stay under configured workspace root.
 - Orchestrator behavior is stateful and concurrency-sensitive; preserve retry, reconciliation, and cleanup semantics.
 - Follow `docs/logging.md` for logging conventions and required issue/session context fields.
@@ -62,3 +57,35 @@ If behavior/config changes, update docs in the same PR:
 - `../README.md` for project concept and goals.
 - `README.md` for Elixir implementation and run instructions.
 - `WORKFLOW.md` for workflow/config contract changes.
+
+## Key Modules
+
+### Orchestration
+
+- `SymphonyElixir.AgentSupervisor` — DynamicSupervisor for agent processes with restart limits.
+- `SymphonyElixir.RestartMonitor` — tracks agent restart frequency and enforces thresholds.
+
+### Security & Reliability
+
+- `SymphonyElixir.Linear.CircuitBreaker` — circuit breaker for Linear API calls.
+- `SymphonyElixir.HookValidator` — validates and sanitizes shell hook commands before execution.
+- `SymphonyElixir.LogRedactor` — redacts secrets from log output.
+- `SymphonyElixir.RedactingFormatter` — custom Logger formatter that applies log redaction.
+
+### Web
+
+- `SymphonyElixirWeb.HealthController` — health check endpoint (`/healthz`).
+
+## Configuration
+
+Environment-specific config files live in `config/`:
+
+- `config.exs` — shared, compile-time config.
+- `dev.exs` — development overrides.
+- `test.exs` — test overrides.
+- `prod.exs` — production compile-time config.
+- `runtime.exs` — runtime config read from environment variables at boot.
+
+## Docker
+
+A `Dockerfile` is provided in this directory for building a release image. A root-level `docker-compose.yml` defines the full service stack. See `docs/deployment.md` for details.
