@@ -13,6 +13,6 @@ config :symphony_elixir, SymphonyElixirWeb.Endpoint,
   live_view: [signing_salt: "symphony-live-view"],
   server: false
 
-if Mix.env() == :test do
-  config :symphony_elixir, :telemetry_collector_port, 0
+if config_env() == :test do
+  config :symphony_elixir, telemetry_collector_port: 0
 end
