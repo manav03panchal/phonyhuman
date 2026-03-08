@@ -14,6 +14,14 @@ defmodule SymphonyElixirWeb.Router do
     plug(:put_secure_browser_headers)
   end
 
+  pipeline :api do
+    plug(:put_secure_browser_headers, %{
+      "x-frame-options" => "DENY",
+      "x-content-type-options" => "nosniff",
+      "strict-transport-security" => "max-age=63072000"
+    })
+  end
+
   scope "/", SymphonyElixirWeb do
     get("/dashboard.css", StaticAssetController, :dashboard_css)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
@@ -28,6 +36,10 @@ defmodule SymphonyElixirWeb.Router do
   end
 
   scope "/", SymphonyElixirWeb do
+    pipe_through(:api)
+
+    get("/health", HealthController, :index)
+
     get("/api/v1/state", ObservabilityApiController, :state)
 
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
