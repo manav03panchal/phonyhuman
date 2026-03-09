@@ -48,6 +48,8 @@ defmodule SymphonyElixirWeb.EventsController do
           {:error, _reason} ->
             conn
         end
+    after
+      sse_idle_timeout_ms() -> conn
     end
   end
 
@@ -73,5 +75,9 @@ defmodule SymphonyElixirWeb.EventsController do
 
   defp snapshot_timeout_ms do
     Endpoint.config(:snapshot_timeout_ms) || 15_000
+  end
+
+  defp sse_idle_timeout_ms do
+    Endpoint.config(:sse_idle_timeout_ms) || :infinity
   end
 end

@@ -74,7 +74,7 @@ defmodule SymphonyElixirWeb.EventsControllerTest do
       orchestrator_name = :"events_test_orch_#{System.unique_integer([:positive])}"
       {:ok, pid} = MockOrchestrator.start_link(mock_snapshot(), orchestrator_name)
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000, sse_idle_timeout_ms: 100)
 
       conn = get(build_conn(), "/api/v1/events")
 
@@ -90,7 +90,7 @@ defmodule SymphonyElixirWeb.EventsControllerTest do
       orchestrator_name = :"events_init_orch_#{System.unique_integer([:positive])}"
       {:ok, pid} = MockOrchestrator.start_link(mock_snapshot(), orchestrator_name)
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000, sse_idle_timeout_ms: 100)
 
       conn = get(build_conn(), "/api/v1/events")
 
@@ -117,7 +117,7 @@ defmodule SymphonyElixirWeb.EventsControllerTest do
       orchestrator_name = :"events_headers_orch_#{System.unique_integer([:positive])}"
       {:ok, pid} = MockOrchestrator.start_link(mock_snapshot(), orchestrator_name)
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000, sse_idle_timeout_ms: 100)
 
       conn = get(build_conn(), "/api/v1/events")
 
@@ -128,7 +128,7 @@ defmodule SymphonyElixirWeb.EventsControllerTest do
       orchestrator_name = :"events_post_orch_#{System.unique_integer([:positive])}"
       {:ok, pid} = MockOrchestrator.start_link(mock_snapshot(), orchestrator_name)
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000)
+      start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5_000, sse_idle_timeout_ms: 100)
 
       conn = post(build_conn(), "/api/v1/events")
       body = json_response(conn, 405)
