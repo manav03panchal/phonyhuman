@@ -55,12 +55,12 @@ func RenderMetricsPanel(m types.AgentMetrics, width int) string {
 	}
 
 	rightMetrics := []string{
-		metricRow("Tokens In", valueYellow.Render(formatCount(m.InputTokens))),
-		metricRow("Tokens Out", valueYellow.Render(formatCount(m.OutputTokens))),
-		metricRow("Cache", fmt.Sprintf("%s  %s",
+		metricRowW("Tokens In", valueYellow.Render(formatCount(m.InputTokens)), 14),
+		metricRowW("Tokens Out", valueYellow.Render(formatCount(m.OutputTokens)), 14),
+		metricRowW("Cache", fmt.Sprintf("%s  %s",
 			valueYellow.Render(formatCount(m.CacheReadTokens)),
-			valueDim.Render(fmt.Sprintf("(%.1f%% hit)", m.CacheHitRate)))),
-		metricRow("Total", valueHighlight.Render(formatCount(m.TotalTokens))),
+			valueDim.Render(fmt.Sprintf("(%.1f%% hit)", m.CacheHitRate))), 14),
+		metricRowW("Total", valueHighlight.Render(formatCount(m.TotalTokens)), 14),
 	}
 
 	codeStats := []string{
@@ -70,9 +70,9 @@ func RenderMetricsPanel(m types.AgentMetrics, width int) string {
 	}
 
 	toolStats := []string{
-		metricRow("Tool Calls", valueStyle.Render(fmt.Sprintf("%d", m.ToolCalls))),
-		metricRow("Avg Dur", valueStyle.Render(fmt.Sprintf("%dms", m.ToolAvgDurationMs))),
-		metricRow("Errors", toolErrorStyle(m.ToolErrors)),
+		metricRowW("Tool Calls", valueStyle.Render(fmt.Sprintf("%d", m.ToolCalls)), 14),
+		metricRowW("Avg Dur", valueStyle.Render(fmt.Sprintf("%dms", m.ToolAvgDurationMs)), 14),
+		metricRowW("Errors", toolErrorStyle(m.ToolErrors), 14),
 	}
 
 	colWidth := (width - 8) / 2
@@ -145,27 +145,59 @@ func RenderRateLimits(limits []types.RateLimit, width int) string {
 	}
 
 	rows := []string{sectionTitle.Render("─ Rate Limits")}
-	barWidth := width - 30
+	barWidth := width - 50
 	if barWidth < 10 {
 		barWidth = 10
 	}
-	if barWidth > 40 {
-		barWidth = 40
+	if barWidth > 35 {
+		barWidth = 35
 	}
 
+	// Pre-format numbers to find max widths for alignment
+	type rlFormatted struct {
+		name    string
+		bar     string
+		used    string
+		limit   string
+		reset   string
+		pct     float64
+	}
+	var formatted []rlFormatted
+	maxUsedLen := 0
+	maxLimitLen := 0
 	for _, rl := range limits {
 		pct := 0.0
 		if rl.Limit > 0 {
 			pct = float64(rl.Used) / float64(rl.Limit)
 		}
-		bar := renderProgressBar(barWidth, pct)
-		resetStr := valueDim.Render(fmt.Sprintf("%ds", rl.ResetInSec))
-		row := fmt.Sprintf("  %-12s %s %s/%s %s",
-			labelStyle.Render(rl.Name),
-			bar,
-			rateLimitColor(pct).Render(fmt.Sprintf("%d", rl.Used)),
-			valueDim.Render(fmt.Sprintf("%d", rl.Limit)),
-			resetStr,
+		usedStr := fmt.Sprintf("%d", rl.Used)
+		limitStr := fmt.Sprintf("%d", rl.Limit)
+		if len(usedStr) > maxUsedLen {
+			maxUsedLen = len(usedStr)
+		}
+		if len(limitStr) > maxLimitLen {
+			maxLimitLen = len(limitStr)
+		}
+		formatted = append(formatted, rlFormatted{
+			name:  rl.Name,
+			bar:   renderProgressBar(barWidth, pct),
+			used:  usedStr,
+			limit: limitStr,
+			reset: fmt.Sprintf("%ds", rl.ResetInSec),
+			pct:   pct,
+		})
+	}
+
+	for _, rl := range formatted {
+		label := fmt.Sprintf("%-10s", rl.name)
+		usage := fmt.Sprintf("%*s", maxUsedLen, rl.used) +
+			valueDim.Render("/") +
+			fmt.Sprintf("%-*s", maxLimitLen, rl.limit)
+		row := fmt.Sprintf("  %s  %s  %s  %s",
+			labelStyle.Render(label),
+			rl.bar,
+			rateLimitColor(rl.pct).Render(usage),
+			valueDim.Render(fmt.Sprintf("⏱ %s", rl.reset)),
 		)
 		rows = append(rows, row)
 	}
@@ -177,9 +209,9 @@ func RenderRateLimits(limits []types.RateLimit, width int) string {
 func RenderProjectInfo(info types.ProjectInfo, width int) string {
 	rows := []string{
 		sectionTitle.Render("─ Project Info"),
-		metricRow("Linear", valueDim.Render(info.LinearURL)),
-		metricRow("Dashboard", valueDim.Render(info.DashboardURL)),
-		metricRow("Refresh", valueDim.Render(fmt.Sprintf("%ds", info.RefreshSec))),
+		metricRowW("Linear", valueDim.Render(info.LinearURL), 14),
+		metricRowW("Dashboard", valueDim.Render(info.DashboardURL), 14),
+		metricRowW("Refresh", valueDim.Render(fmt.Sprintf("%ds", info.RefreshSec)), 14),
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 	return panelBorder.Width(width - 4).Render(content)
@@ -207,7 +239,12 @@ func RenderFooter(width int) string {
 // --- Helpers ---
 
 func metricRow(label, value string) string {
-	return fmt.Sprintf("  %s %s", labelStyle.Width(12).Render(label+":"), value)
+	return metricRowW(label, value, 14)
+}
+
+func metricRowW(label, value string, labelWidth int) string {
+	padded := fmt.Sprintf("%-*s", labelWidth, label+":")
+	return fmt.Sprintf("  %s %s", labelStyle.Render(padded), value)
 }
 
 func fleetBadge(status string) string {
