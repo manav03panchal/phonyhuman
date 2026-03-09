@@ -1032,7 +1032,7 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
             exit 1
         fi
         sleep 1
-        (( waited++ ))
+        waited=$((waited + 1))
     done
 
     if (( waited >= max_wait )); then
