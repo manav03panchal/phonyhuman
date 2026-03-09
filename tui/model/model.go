@@ -13,10 +13,24 @@ import (
 
 const pollInterval = 2 * time.Second
 
+// promptMode tracks confirmation dialog state.
+type promptMode int
+
+const (
+	promptNone promptMode = iota
+	promptConfirmPause
+	promptConfirmResume
+)
+
 // stateMsg carries the result of a state fetch (SSE or poll).
 type stateMsg struct {
 	state *types.State
 	err   error
+}
+
+// fleetActionMsg carries the result of a pause/resume action.
+type fleetActionMsg struct {
+	err error
 }
 
 // sseClosedMsg signals the SSE subscription ended (404 or terminal error).
@@ -25,15 +39,19 @@ type sseClosedMsg struct{}
 // pollTickMsg triggers a periodic state poll.
 type pollTickMsg struct{}
 
+// tickMsg triggers countdown updates.
+type tickMsg time.Time
+
 // Model is the Bubble Tea model for the Symphony TUI dashboard.
 type Model struct {
 	client  *client.Client
 	width   int
 	height  int
+	stateAt time.Time
+	prompt  promptMode
 	metrics types.AgentMetrics
 	limits  []types.RateLimit
 	project types.ProjectInfo
-	paused  bool
 	panel   int // active panel index for tab switching
 
 	// SSE / polling state
@@ -85,9 +103,9 @@ func New(c *client.Client) Model {
 	}
 }
 
-// Init starts listening for SSE events.
+// Init starts listening for SSE events and ticking for countdown updates.
 func (m Model) Init() tea.Cmd {
-	return waitForSSE(m.sseSub)
+	return tea.Batch(waitForSSE(m.sseSub), tickCmd())
 }
 
 // Update handles messages.
@@ -98,34 +116,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			if m.sseSub != nil {
-				m.sseSub.Close()
-			}
-			return m, tea.Quit
-		case "tab":
-			m.panel = (m.panel + 1) % 3
-		case "p":
-			m.paused = !m.paused
-			if m.paused {
-				m.metrics.FleetStatus = "paused"
-			} else {
-				m.metrics.FleetStatus = "running"
-			}
-		}
+		return m.handleKey(msg)
 
 	case stateMsg:
 		if msg.err != nil {
 			m.stateErr = msg.err
 		} else {
 			m.state = msg.state
+			m.stateAt = time.Now()
 			m.stateErr = nil
+			m.syncMetrics()
 		}
 		if m.useSSE && m.sseSub != nil {
 			return m, waitForSSE(m.sseSub)
 		}
 		return m, nil
+
+	case fleetActionMsg:
+		// Re-poll immediately after fleet action.
+		return m, m.pollState()
 
 	case sseClosedMsg:
 		// SSE unavailable (404 or terminal) — fall back to polling.
@@ -138,13 +147,103 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Batch(m.pollState(), schedulePoll())
+
+	case tickMsg:
+		return m, tickCmd()
 	}
 	return m, nil
 }
 
 // View renders the dashboard.
 func (m Model) View() string {
-	return view.RenderDashboard(m.width, m.height, m.metrics, m.limits, m.project)
+	return view.RenderDashboard(view.DashboardData{
+		Width:        m.width,
+		Height:       m.height,
+		Metrics:      m.metrics,
+		Limits:       m.limits,
+		Project:      m.project,
+		State:        m.state,
+		StateAt:      m.stateAt,
+		PromptPause:  m.prompt == promptConfirmPause,
+		PromptResume: m.prompt == promptConfirmResume,
+	})
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// Handle confirmation prompts first.
+	if m.prompt == promptConfirmPause {
+		switch key {
+		case "y", "Y":
+			m.prompt = promptNone
+			return m, doPause(m.client)
+		case "n", "N", "esc":
+			m.prompt = promptNone
+		}
+		return m, nil
+	}
+	if m.prompt == promptConfirmResume {
+		switch key {
+		case "y", "Y":
+			m.prompt = promptNone
+			return m, doResume(m.client)
+		case "n", "N", "esc":
+			m.prompt = promptNone
+		}
+		return m, nil
+	}
+
+	switch key {
+	case "q", "ctrl+c":
+		if m.sseSub != nil {
+			m.sseSub.Close()
+		}
+		return m, tea.Quit
+	case "tab":
+		m.panel = (m.panel + 1) % 3
+	case "p":
+		if m.state != nil && m.state.FleetStatus == "paused" {
+			m.prompt = promptConfirmResume
+		} else {
+			m.prompt = promptConfirmPause
+		}
+	}
+	return m, nil
+}
+
+// syncMetrics updates the display metrics from the latest API state.
+func (m *Model) syncMetrics() {
+	s := m.state
+	if s == nil {
+		return
+	}
+	m.metrics.FleetStatus = s.FleetStatus
+	m.metrics.Running = s.Counts.Running
+}
+
+func doPause(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := c.PauseFleet(ctx, "Manual pause (operator)")
+		return fleetActionMsg{err: err}
+	}
+}
+
+func doResume(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := c.ResumeFleet(ctx)
+		return fleetActionMsg{err: err}
+	}
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(pollInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 // waitForSSE returns a Cmd that blocks until the next SSE event arrives.
