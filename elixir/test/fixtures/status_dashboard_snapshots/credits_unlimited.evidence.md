@@ -1,6 +1,7 @@
 ```text
 ╭─ SYMPHONY STATUS
 │ Agents: 1/10
+│ Fleet: RUNNING
 │ Throughput: 42 tps
 │ Runtime: 1m 15s
 │ Tokens: in 90 | out 12 | cache 0 (0.0%) | total 102

@@ -2,6 +2,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,8 @@ const (
 	retryBaseDelay = 500 * time.Millisecond
 	statePath      = "/api/v1/state"
 	healthPath     = "/health"
+	fleetPausePath = "/api/v1/fleet/pause"
+	fleetResumePath = "/api/v1/fleet/resume"
 )
 
 // Client fetches orchestrator state from the Symphony Phoenix API.
@@ -142,6 +145,43 @@ func (c *Client) Poll(ctx context.Context, interval time.Duration, ch chan<- *ty
 			}
 		}
 	}
+}
+
+// PauseFleet calls POST /api/v1/fleet/pause.
+func (c *Client) PauseFleet(ctx context.Context, reason string) error {
+	payload, _ := json.Marshal(map[string]string{"reason": reason})
+	return c.doPost(ctx, fleetPausePath, payload)
+}
+
+// ResumeFleet calls POST /api/v1/fleet/resume.
+func (c *Client) ResumeFleet(ctx context.Context) error {
+	return c.doPost(ctx, fleetResumePath, nil)
+}
+
+func (c *Client) doPost(ctx context.Context, path string, body []byte) error {
+	endpoint := c.baseURL + path
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, reader)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, respBody)
+	}
+	return nil
 }
 
 // getWithRetry performs a GET request with retry on transient errors.

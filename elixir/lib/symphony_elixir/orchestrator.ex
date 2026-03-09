@@ -994,6 +994,30 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  @spec pause_fleet(String.t() | nil) :: :ok | :unavailable
+  def pause_fleet(reason \\ nil), do: pause_fleet(__MODULE__, reason)
+
+  @spec pause_fleet(GenServer.server(), String.t() | nil) :: :ok | :unavailable
+  def pause_fleet(server, reason) do
+    if Process.whereis(server) do
+      GenServer.call(server, {:fleet_pause, reason})
+    else
+      :unavailable
+    end
+  end
+
+  @spec resume_fleet() :: :ok | :unavailable
+  def resume_fleet, do: resume_fleet(__MODULE__)
+
+  @spec resume_fleet(GenServer.server()) :: :ok | :unavailable
+  def resume_fleet(server) do
+    if Process.whereis(server) do
+      GenServer.call(server, :fleet_resume)
+    else
+      :unavailable
+    end
+  end
+
   @spec snapshot() :: map() | :timeout | :unavailable
   def snapshot, do: snapshot(__MODULE__, 15_000)
 
@@ -1113,6 +1137,19 @@ defmodule SymphonyElixir.Orchestrator do
        requested_at: DateTime.utc_now(),
        operations: ["poll", "reconcile"]
      }, state}
+  end
+
+  def handle_call({:fleet_pause, reason}, _from, state) do
+    reason = reason || "Manual pause (operator)"
+    state = trigger_fleet_pause(state, reason, Config.fleet_pause_default_ms())
+    notify_dashboard()
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:fleet_resume, _from, state) do
+    state = clear_fleet_pause(state)
+    notify_dashboard()
+    {:reply, :ok, state}
   end
 
   defp integrate_agent_update(running_entry, %{event: event, timestamp: timestamp} = update) do

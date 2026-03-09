@@ -1,6 +1,9 @@
 package model
 
 import (
+	"context"
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/humancorp/symphony/tui/client"
@@ -8,16 +11,42 @@ import (
 	"github.com/humancorp/symphony/tui/view"
 )
 
+const pollInterval = 2 * time.Second
+
+// promptMode tracks confirmation dialog state.
+type promptMode int
+
+const (
+	promptNone promptMode = iota
+	promptConfirmPause
+	promptConfirmResume
+)
+
+// stateMsg carries the result of a state poll.
+type stateMsg struct {
+	state *types.State
+	err   error
+}
+
+// fleetActionMsg carries the result of a pause/resume action.
+type fleetActionMsg struct {
+	err error
+}
+
+// tickMsg triggers countdown updates and state re-polls.
+type tickMsg time.Time
+
 // Model is the Bubble Tea model for the Symphony TUI dashboard.
 type Model struct {
 	client  *client.Client
 	width   int
 	height  int
+	state   *types.State
+	stateAt time.Time
+	prompt  promptMode
 	metrics types.AgentMetrics
 	limits  []types.RateLimit
 	project types.ProjectInfo
-	paused  bool
-	panel   int // active panel index for tab switching
 }
 
 // New creates a Model wired to the given API client with demo data.
@@ -58,9 +87,9 @@ func New(c *client.Client) Model {
 	}
 }
 
-// Init returns no initial command.
+// Init starts polling and ticking.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return tea.Batch(pollState(m.client), tickCmd())
 }
 
 // Update handles messages.
@@ -71,24 +100,120 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "tab":
-			m.panel = (m.panel + 1) % 3
-		case "p":
-			m.paused = !m.paused
-			if m.paused {
-				m.metrics.FleetStatus = "paused"
-			} else {
-				m.metrics.FleetStatus = "running"
-			}
+		return m.handleKey(msg)
+
+	case stateMsg:
+		if msg.err == nil && msg.state != nil {
+			m.state = msg.state
+			m.stateAt = time.Now()
+			m.syncMetrics()
 		}
+		return m, nil
+
+	case fleetActionMsg:
+		// Re-poll immediately after fleet action.
+		return m, pollState(m.client)
+
+	case tickMsg:
+		return m, tea.Batch(pollState(m.client), tickCmd())
 	}
 	return m, nil
 }
 
 // View renders the dashboard.
 func (m Model) View() string {
-	return view.RenderDashboard(m.width, m.height, m.metrics, m.limits, m.project)
+	return view.RenderDashboard(view.DashboardData{
+		Width:        m.width,
+		Height:       m.height,
+		Metrics:      m.metrics,
+		Limits:       m.limits,
+		Project:      m.project,
+		State:        m.state,
+		StateAt:      m.stateAt,
+		PromptPause:  m.prompt == promptConfirmPause,
+		PromptResume: m.prompt == promptConfirmResume,
+	})
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// Handle confirmation prompts first.
+	if m.prompt == promptConfirmPause {
+		switch key {
+		case "y", "Y":
+			m.prompt = promptNone
+			return m, doPause(m.client)
+		case "n", "N", "esc":
+			m.prompt = promptNone
+		}
+		return m, nil
+	}
+	if m.prompt == promptConfirmResume {
+		switch key {
+		case "y", "Y":
+			m.prompt = promptNone
+			return m, doResume(m.client)
+		case "n", "N", "esc":
+			m.prompt = promptNone
+		}
+		return m, nil
+	}
+
+	switch key {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "tab":
+		// keep existing tab behavior
+	case "p":
+		if m.state != nil && m.state.FleetStatus == "paused" {
+			m.prompt = promptConfirmResume
+		} else {
+			m.prompt = promptConfirmPause
+		}
+	}
+	return m, nil
+}
+
+// syncMetrics updates the display metrics from the latest API state.
+func (m *Model) syncMetrics() {
+	s := m.state
+	if s == nil {
+		return
+	}
+	m.metrics.FleetStatus = s.FleetStatus
+	m.metrics.Running = s.Counts.Running
+}
+
+func pollState(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		state, err := c.FetchState(ctx)
+		return stateMsg{state: state, err: err}
+	}
+}
+
+func doPause(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := c.PauseFleet(ctx, "Manual pause (operator)")
+		return fleetActionMsg{err: err}
+	}
+}
+
+func doResume(c *client.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := c.ResumeFleet(ctx)
+		return fleetActionMsg{err: err}
+	}
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(pollInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }

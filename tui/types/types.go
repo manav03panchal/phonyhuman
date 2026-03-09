@@ -156,3 +156,8 @@ type ProjectInfo struct {
 	DashboardURL string
 	RefreshSec   int
 }
+
+// FleetActionResponse is returned by fleet pause/resume endpoints.
+type FleetActionResponse struct {
+	Status string `json:"status"`
+}
