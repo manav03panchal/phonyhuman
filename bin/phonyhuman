@@ -1010,9 +1010,9 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
             break
         fi
         # Check orchestrator didn't crash
-        if ! kill -0 "$orch_pid" 2>/dev/null; then
+        if ! kill -0 "$_ORCH_PID" 2>/dev/null; then
             red "  Orchestrator exited unexpectedly."; echo ""
-            wait "$orch_pid" 2>/dev/null
+            wait "$_ORCH_PID" 2>/dev/null
             exit 1
         fi
         sleep 1
