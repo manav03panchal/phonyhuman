@@ -10,15 +10,15 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/anthropics/symphony/tui/types"
+	"github.com/humancorp/symphony/tui/types"
 )
 
 const (
-	defaultTimeout  = 5 * time.Second
-	maxRetries      = 3
-	retryBaseDelay  = 500 * time.Millisecond
-	statePath       = "/api/v1/state"
-	healthPath      = "/health"
+	defaultTimeout = 5 * time.Second
+	maxRetries     = 3
+	retryBaseDelay = 500 * time.Millisecond
+	statePath      = "/api/v1/state"
+	healthPath     = "/health"
 )
 
 // Client fetches orchestrator state from the Symphony Phoenix API.
@@ -71,6 +71,11 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 		o(c)
 	}
 	return c, nil
+}
+
+// BaseURL returns the configured base URL.
+func (c *Client) BaseURL() string {
+	return c.baseURL
 }
 
 // FetchState calls GET /api/v1/state and returns the deserialized orchestrator state.

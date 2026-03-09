@@ -71,21 +71,21 @@ type RetryEntry struct {
 
 // AgentTotals holds aggregate metrics across all agent sessions.
 type AgentTotals struct {
-	InputTokens        int     `json:"input_tokens"`
-	OutputTokens       int     `json:"output_tokens"`
-	TotalTokens        int     `json:"total_tokens"`
-	CacheReadTokens    int     `json:"cache_read_tokens"`
-	CacheCreationTokens int    `json:"cache_creation_tokens"`
-	CacheHitRate       float64 `json:"cache_hit_rate"`
-	CostUSD            float64 `json:"cost_usd"`
-	SecondsRunning     int     `json:"seconds_running"`
-	LinesChanged       int     `json:"lines_changed"`
-	CommitsCount       int     `json:"commits_count"`
-	PRsCount           int     `json:"prs_count"`
-	ToolCalls          int     `json:"tool_calls"`
-	ToolAvgDurationMs  int     `json:"tool_avg_duration_ms"`
-	APIErrors          int     `json:"api_errors"`
-	ActiveTimeSeconds  int     `json:"active_time_seconds"`
+	InputTokens         int     `json:"input_tokens"`
+	OutputTokens        int     `json:"output_tokens"`
+	TotalTokens         int     `json:"total_tokens"`
+	CacheReadTokens     int     `json:"cache_read_tokens"`
+	CacheCreationTokens int     `json:"cache_creation_tokens"`
+	CacheHitRate        float64 `json:"cache_hit_rate"`
+	CostUSD             float64 `json:"cost_usd"`
+	SecondsRunning      int     `json:"seconds_running"`
+	LinesChanged        int     `json:"lines_changed"`
+	CommitsCount        int     `json:"commits_count"`
+	PRsCount            int     `json:"prs_count"`
+	ToolCalls           int     `json:"tool_calls"`
+	ToolAvgDurationMs   int     `json:"tool_avg_duration_ms"`
+	APIErrors           int     `json:"api_errors"`
+	ActiveTimeSeconds   int     `json:"active_time_seconds"`
 }
 
 // RateLimits holds rate limit bucket information from the orchestrator.
@@ -108,3 +108,7 @@ type Health struct {
 	UptimeSeconds int    `json:"uptime_seconds"`
 	ActiveAgents  int    `json:"active_agents"`
 }
+
+// HealthResponse represents the response from the /health endpoint.
+// Alias for backward compatibility with the TUI scaffold.
+type HealthResponse = Health

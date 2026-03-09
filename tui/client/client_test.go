@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropics/symphony/tui/types"
+	"github.com/humancorp/symphony/tui/types"
 )
 
 func sampleState() types.State {
