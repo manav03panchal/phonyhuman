@@ -903,6 +903,75 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.workflow_prompt() == workflow_prompt
   end
 
+  test "config parses mcp_servers from agent_server section" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      mcp_servers: %{
+        "context7" => %{"command" => "npx", "args" => ["-y", "@upstash/context7-mcp"]}
+      }
+    )
+
+    servers = Config.agent_mcp_servers()
+    assert is_map(servers)
+    assert Map.has_key?(servers, "context7")
+    assert servers["context7"]["command"] == "npx"
+    assert servers["context7"]["args"] == ["-y", "@upstash/context7-mcp"]
+  end
+
+  test "config returns nil when mcp_servers is not configured" do
+    write_workflow_file!(Workflow.workflow_file_path())
+    assert Config.agent_mcp_servers() == nil
+  end
+
+  test "workspace writes .mcp.json when mcp_servers configured" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-mcp-json-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        mcp_servers: %{
+          "context7" => %{"command" => "npx", "args" => ["-y", "@upstash/context7-mcp"]}
+        }
+      )
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MCP-1")
+      Workspace.write_mcp_json(workspace)
+
+      mcp_path = Path.join(workspace, ".mcp.json")
+      assert File.exists?(mcp_path)
+
+      mcp_config = Jason.decode!(File.read!(mcp_path))
+      assert Map.has_key?(mcp_config, "mcpServers")
+      assert mcp_config["mcpServers"]["context7"]["command"] == "npx"
+      assert mcp_config["mcpServers"]["context7"]["args"] == ["-y", "@upstash/context7-mcp"]
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace does not write .mcp.json when mcp_servers not configured" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-no-mcp-json-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MCP-2")
+      Workspace.write_mcp_json(workspace)
+
+      mcp_path = Path.join(workspace, ".mcp.json")
+      refute File.exists?(mcp_path)
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "config with [agent] section loads agent-server settings correctly" do
     workflow = """
     ---

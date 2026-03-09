@@ -82,6 +82,21 @@ defmodule SymphonyElixir.Workspace do
     :ok
   end
 
+  @spec write_mcp_json(Path.t()) :: :ok
+  def write_mcp_json(workspace) when is_binary(workspace) do
+    case Config.agent_mcp_servers() do
+      nil ->
+        :ok
+
+      servers when is_map(servers) ->
+        mcp_config = %{"mcpServers" => servers}
+        mcp_path = Path.join(workspace, ".mcp.json")
+        File.write!(mcp_path, Jason.encode!(mcp_config, pretty: true))
+        Logger.info("Wrote .mcp.json to workspace=#{workspace}")
+        :ok
+    end
+  end
+
   @spec run_before_run_hook(Path.t(), map() | String.t() | nil) :: :ok | {:error, term()}
   def run_before_run_hook(workspace, issue_or_identifier) when is_binary(workspace) do
     issue_context = issue_context(issue_or_identifier)

@@ -400,6 +400,17 @@ defmodule SymphonyElixir.Config do
     |> max(0)
   end
 
+  @spec agent_mcp_servers() :: map() | nil
+  def agent_mcp_servers do
+    case fetch_agent_mcp_servers() do
+      :missing -> nil
+      nil -> nil
+      servers when is_map(servers) and map_size(servers) == 0 -> nil
+      servers when is_map(servers) -> servers
+      _ -> nil
+    end
+  end
+
   @spec workflow_prompt() :: String.t()
   def workflow_prompt do
     case current_workflow() do
@@ -814,6 +825,15 @@ defmodule SymphonyElixir.Config do
 
       value ->
         value
+    end
+  end
+
+  defp fetch_agent_mcp_servers do
+    config = workflow_config()
+
+    case resolve_config_value(config, [["agent_server", "mcp_servers"], ["agent", "mcp_servers"]]) do
+      :missing -> :missing
+      value -> value
     end
   end
 
