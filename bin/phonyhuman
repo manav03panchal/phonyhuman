@@ -507,15 +507,31 @@ cmd_update() {
     echo "  Latest:  $latest_version"
     echo ""
 
-    # Find tarball URL
+    # Find platform-specific tarball URL
+    local os_name arch_name platform
+    os_name="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    arch_name="$(uname -m)"
+    case "$arch_name" in
+        aarch64|arm64) arch_name="arm64" ;;
+        x86_64|amd64)  arch_name="x86_64" ;;
+    esac
+    platform="${os_name}-${arch_name}"
+
     local tarball_url
     tarball_url=$(echo "$release_json" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
+platform = '${platform}'
+fallback = None
 for asset in data.get('assets', []):
-    if asset['name'].endswith('.tar.gz'):
+    name = asset['name']
+    if name.endswith('.tar.gz') and platform in name:
         print(asset['browser_download_url'])
-        break
+        sys.exit(0)
+    elif name.endswith('.tar.gz') and fallback is None:
+        fallback = asset['browser_download_url']
+if fallback:
+    print(fallback)
 " 2>/dev/null)
 
     if [[ -z "$tarball_url" ]]; then
@@ -537,9 +553,10 @@ for asset in data.get('assets', []):
     # Extract over existing install
     tar xzf "$tmpdir/phonyhuman.tar.gz" -C "$PHONYHUMAN_HOME" --strip-components=0
 
-    # Ensure executable
+    # Ensure executables
     chmod +x "$PHONYHUMAN_HOME/bin/phonyhuman"
     chmod +x "$PHONYHUMAN_HOME/bin/symphony-escript" 2>/dev/null || true
+    chmod +x "$PHONYHUMAN_HOME/bin/symphony-tui" 2>/dev/null || true
 
     echo ""
     green "  Updated to v${latest_version}!"; echo ""
