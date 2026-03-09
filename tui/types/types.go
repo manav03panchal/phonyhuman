@@ -1,9 +1,14 @@
-package main
+package types
+
+// HealthResponse represents the response from the /health endpoint.
+type HealthResponse struct {
+	Status string `json:"status"`
+}
 
 // AgentMetrics holds per-agent or aggregated agent metrics.
 type AgentMetrics struct {
-	Running    int
-	MaxAgents  int
+	Running     int
+	MaxAgents   int
 	FleetStatus string // "running", "paused"
 
 	InputTokens     int64

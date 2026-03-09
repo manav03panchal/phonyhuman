@@ -1,4 +1,4 @@
-package main
+package view
 
 import (
 	"fmt"
@@ -6,12 +6,14 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/humancorp/symphony/tui/types"
 )
 
 var sparkBlocks = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
-// renderHeader renders the "S Y M P H O N Y" banner with border and gradient.
-func renderHeader(width int) string {
+// RenderHeader renders the "S Y M P H O N Y" banner with border and gradient.
+func RenderHeader(width int) string {
 	banner := "S Y M P H O N Y"
 	subtitle := "Fleet Orchestrator Dashboard"
 
@@ -29,14 +31,14 @@ func renderHeader(width int) string {
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, bordered)
 }
 
-// renderCompactHeader renders a minimal header for narrow terminals.
-func renderCompactHeader(width int) string {
+// RenderCompactHeader renders a minimal header for narrow terminals.
+func RenderCompactHeader(width int) string {
 	banner := bannerStyle.Render("SYMPHONY")
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, banner)
 }
 
-// renderMetricsPanel renders the two-column metrics grid.
-func renderMetricsPanel(m AgentMetrics, width int) string {
+// RenderMetricsPanel renders the two-column metrics grid.
+func RenderMetricsPanel(m types.AgentMetrics, width int) string {
 	leftMetrics := []string{
 		metricRow("Agents", fmt.Sprintf("%s/%s  %s",
 			valueHighlight.Render(fmt.Sprintf("%d", m.Running)),
@@ -111,8 +113,8 @@ func renderMetricsPanel(m AgentMetrics, width int) string {
 	return panelBorder.Width(width - 4).Render(grid)
 }
 
-// renderCompactMetrics renders a single-column metrics view for narrow terminals.
-func renderCompactMetrics(m AgentMetrics, width int) string {
+// RenderCompactMetrics renders a single-column metrics view for narrow terminals.
+func RenderCompactMetrics(m types.AgentMetrics, width int) string {
 	rows := []string{
 		sectionTitle.Render("─ Metrics"),
 		metricRow("Agents", fmt.Sprintf("%d/%d %s", m.Running, m.MaxAgents, fleetBadge(m.FleetStatus))),
@@ -132,8 +134,8 @@ func renderCompactMetrics(m AgentMetrics, width int) string {
 	return panelBorder.Width(width - 4).Render(content)
 }
 
-// renderRateLimits renders rate limit progress bars.
-func renderRateLimits(limits []RateLimit, width int) string {
+// RenderRateLimits renders rate limit progress bars.
+func RenderRateLimits(limits []types.RateLimit, width int) string {
 	if len(limits) == 0 {
 		return panelBorder.Width(width - 4).Render(
 			sectionTitle.Render("─ Rate Limits") + "\n" +
@@ -170,8 +172,8 @@ func renderRateLimits(limits []RateLimit, width int) string {
 	return panelBorder.Width(width - 4).Render(content)
 }
 
-// renderProjectInfo renders project URLs and refresh countdown.
-func renderProjectInfo(info ProjectInfo, width int) string {
+// RenderProjectInfo renders project URLs and refresh countdown.
+func RenderProjectInfo(info types.ProjectInfo, width int) string {
 	rows := []string{
 		sectionTitle.Render("─ Project Info"),
 		metricRow("Linear", valueDim.Render(info.LinearURL)),
@@ -182,8 +184,8 @@ func renderProjectInfo(info ProjectInfo, width int) string {
 	return panelBorder.Width(width - 4).Render(content)
 }
 
-// renderFooter renders keybinding hints.
-func renderFooter(width int) string {
+// RenderFooter renders keybinding hints.
+func RenderFooter(width int) string {
 	keys := []struct{ key, desc string }{
 		{"q", "quit"},
 		{"tab", "switch panels"},
