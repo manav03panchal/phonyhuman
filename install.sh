@@ -102,14 +102,25 @@ fi
 echo "  Version: $(green "v${VERSION}")"
 
 # ── Find tarball URL ─────────────────────────────────────────────────
-# Single platform-independent tarball (Elixir escript is BEAM bytecode)
+# Platform-specific tarball (TUI binary is native)
+PLATFORM="${OS}-${ARCH}"
+dim "  Looking for tarball: ${PLATFORM}"; echo ""
+
 TARBALL_URL=$(echo "$RELEASE_JSON" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
+platform = '${PLATFORM}'
+# Try platform-specific first, then fall back to generic
+fallback = None
 for asset in data.get('assets', []):
-    if asset['name'].endswith('.tar.gz'):
+    name = asset['name']
+    if name.endswith('.tar.gz') and platform in name:
         print(asset['browser_download_url'])
-        break
+        sys.exit(0)
+    elif name.endswith('.tar.gz') and '-' not in name.replace('phonyhuman-','').replace('.tar.gz','').replace('.',''):
+        fallback = asset['browser_download_url']
+if fallback:
+    print(fallback)
 " 2>/dev/null)
 
 if [ -z "$TARBALL_URL" ]; then
@@ -139,6 +150,7 @@ tar xzf "$TMPDIR/phonyhuman.tar.gz" -C "$INSTALL_DIR"
 # Ensure executables
 chmod +x "$INSTALL_DIR/bin/phonyhuman"
 chmod +x "$INSTALL_DIR/bin/symphony-escript" 2>/dev/null || true
+chmod +x "$INSTALL_DIR/bin/symphony-tui" 2>/dev/null || true
 
 # ── Check for Erlang/OTP ─────────────────────────────────────────────
 echo ""

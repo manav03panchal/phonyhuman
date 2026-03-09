@@ -952,10 +952,13 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
 
     # ── Detect TUI binary ──────────────────────────────────────────────
     local tui_bin=""
-    if [[ -x "$SCRIPT_PATH/../tui/symphony-tui" ]]; then
-        tui_bin="$SCRIPT_PATH/../tui/symphony-tui"
+    if [[ -x "$BIN_DIR/symphony-tui" ]]; then
+        tui_bin="$BIN_DIR/symphony-tui"
     elif command -v symphony-tui &>/dev/null; then
         tui_bin="$(command -v symphony-tui)"
+    elif [[ -x "$SCRIPT_PATH/../tui/symphony-tui" ]]; then
+        # Dev: repo checkout
+        tui_bin="$SCRIPT_PATH/../tui/symphony-tui"
     fi
 
     # If no TUI or no port, run orchestrator in foreground as before
