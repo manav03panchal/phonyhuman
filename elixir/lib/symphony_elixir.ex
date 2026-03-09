@@ -24,6 +24,7 @@ defmodule SymphonyElixir.Application do
     :ok = SymphonyElixir.LogFile.configure()
     :persistent_term.put(:symphony_started_at, System.monotonic_time(:second))
     :persistent_term.put(:symphony_shutting_down, false)
+    SymphonyElixir.StatusDashboard.check_go_tui_binary()
 
     children = [
       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
@@ -33,8 +34,7 @@ defmodule SymphonyElixir.Application do
       SymphonyElixir.Linear.CircuitBreaker,
       SymphonyElixir.Orchestrator,
       SymphonyElixir.TelemetryCollector,
-      SymphonyElixir.HttpServer,
-      SymphonyElixir.StatusDashboard
+      SymphonyElixir.HttpServer
     ]
 
     Supervisor.start_link(
@@ -54,7 +54,6 @@ defmodule SymphonyElixir.Application do
 
   @impl true
   def stop(_state) do
-    SymphonyElixir.StatusDashboard.render_offline_status()
     :ok
   end
 end

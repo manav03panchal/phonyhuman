@@ -13,6 +13,7 @@ defmodule SymphonyElixir.MixProject do
           threshold: 100
         ],
         ignore_modules: [
+          SymphonyElixir.AgentSupervisor,
           SymphonyElixir.Application,
           SymphonyElixir.Config,
           SymphonyElixir.Linear.CircuitBreaker,
@@ -20,6 +21,7 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.Linear.Client,
           SymphonyElixir.SpecsCheck,
           SymphonyElixir.Orchestrator,
+          SymphonyElixir.RestartMonitor,
           SymphonyElixir.Orchestrator.State,
           SymphonyElixir.AgentRunner,
           SymphonyElixir.CLI,
