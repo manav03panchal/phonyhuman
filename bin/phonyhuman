@@ -968,19 +968,20 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
     fi
 
     # ── Launch orchestrator in background, TUI in foreground ───────────
-    local orch_pid=""
+    _ORCH_PID=""
+    _WORKFLOW_FILE="$workflow_file"
     cleanup() {
-        if [[ -n "$orch_pid" ]] && kill -0 "$orch_pid" 2>/dev/null; then
-            kill -TERM "$orch_pid" 2>/dev/null
-            wait "$orch_pid" 2>/dev/null || true
+        if [[ -n "${_ORCH_PID:-}" ]] && kill -0 "$_ORCH_PID" 2>/dev/null; then
+            kill -TERM "$_ORCH_PID" 2>/dev/null
+            wait "$_ORCH_PID" 2>/dev/null || true
         fi
-        rm -f "${workflow_file:-}"
+        rm -f "${_WORKFLOW_FILE:-}"
     }
     trap cleanup EXIT INT TERM
 
     local orch_log="${wsroot_expanded}/orchestrator.log"
     "${cmd[@]}" >"$orch_log" 2>&1 &
-    orch_pid=$!
+    _ORCH_PID=$!
 
     # Wait for health check
     local api_url="http://localhost:${port_flag}"
