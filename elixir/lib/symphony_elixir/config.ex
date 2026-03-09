@@ -56,6 +56,7 @@ defmodule SymphonyElixir.Config do
   @default_observability_enabled true
   @default_observability_refresh_ms 1_000
   @default_observability_render_interval_ms 16
+  @default_observability_terminal_dashboard false
   @default_server_host "127.0.0.1"
   @workflow_options_schema NimbleOptions.new!(
                              tracker: [
@@ -179,6 +180,10 @@ defmodule SymphonyElixir.Config do
                                  render_interval_ms: [
                                    type: :integer,
                                    default: @default_observability_render_interval_ms
+                                 ],
+                                 terminal_dashboard: [
+                                   type: :boolean,
+                                   default: @default_observability_terminal_dashboard
                                  ]
                                ]
                              ],
@@ -435,6 +440,11 @@ defmodule SymphonyElixir.Config do
   @spec observability_render_interval_ms() :: pos_integer()
   def observability_render_interval_ms do
     get_in(validated_workflow_options(), [:observability, :render_interval_ms])
+  end
+
+  @spec observability_terminal_dashboard?() :: boolean()
+  def observability_terminal_dashboard? do
+    get_in(validated_workflow_options(), [:observability, :terminal_dashboard])
   end
 
   @spec server_port() :: non_neg_integer() | nil
