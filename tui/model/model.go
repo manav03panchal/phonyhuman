@@ -4,9 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/humancorp/symphony/tui/client"
 	"github.com/humancorp/symphony/tui/types"
@@ -14,12 +12,6 @@ import (
 )
 
 const pollInterval = 2 * time.Second
-
-// healthMsg carries the result of a health check.
-type healthMsg struct {
-	resp types.Health
-	err  error
-}
 
 // stateMsg carries the result of a state fetch (SSE or poll).
 type stateMsg struct {
@@ -33,43 +25,78 @@ type sseClosedMsg struct{}
 // pollTickMsg triggers a periodic state poll.
 type pollTickMsg struct{}
 
-// Model is the Bubble Tea model for the Symphony TUI.
+// Model is the Bubble Tea model for the Symphony TUI dashboard.
 type Model struct {
-	client       *client.Client
-	spinner      spinner.Model
-	loading      bool
-	healthStatus string
-	healthErr    error
-	state        *types.State
-	stateErr     error
-	useSSE       bool
-	sseSub       *client.SSESubscription
+	client  *client.Client
+	width   int
+	height  int
+	metrics types.AgentMetrics
+	limits  []types.RateLimit
+	project types.ProjectInfo
+	paused  bool
+	panel   int // active panel index for tab switching
+
+	// SSE / polling state
+	state    *types.State
+	stateErr error
+	useSSE   bool
+	sseSub   *client.SSESubscription
 }
 
-// New creates a Model wired to the given API client.
+// New creates a Model wired to the given API client with demo data.
 // It eagerly creates an SSE subscription so the pointer is shared across
 // Bubble Tea's value copies of the model.
 func New(c *client.Client) Model {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
 	return Model{
-		client:  c,
-		spinner: s,
-		loading: true,
-		useSSE:  true,
-		sseSub:  c.SubscribeSSE(context.Background()),
+		client: c,
+		metrics: types.AgentMetrics{
+			Running:           3,
+			MaxAgents:         5,
+			FleetStatus:       "running",
+			InputTokens:       1_250_000,
+			OutputTokens:      380_000,
+			CacheReadTokens:   890_000,
+			TotalTokens:       2_520_000,
+			CacheHitRate:      71.2,
+			CostUSD:           4.2847,
+			Model:             "claude-sonnet-4-6",
+			RuntimeSeconds:    1832,
+			TPS:               142.5,
+			TPSHistory:        []float64{80, 95, 110, 130, 125, 142, 138, 150, 145, 142, 155, 148, 140, 135, 142, 150, 148, 145, 140, 138, 142, 148, 145, 142},
+			LinesChanged:      847,
+			Commits:           12,
+			PRs:               3,
+			ToolCalls:         256,
+			ToolAvgDurationMs: 340,
+			ToolErrors:        2,
+		},
+		limits: []types.RateLimit{
+			{Name: "Requests", Used: 42, Limit: 60, ResetInSec: 18},
+			{Name: "Tokens", Used: 75000, Limit: 100000, ResetInSec: 45},
+			{Name: "Input", Used: 180000, Limit: 200000, ResetInSec: 12},
+		},
+		project: types.ProjectInfo{
+			LinearURL:    "https://linear.app/humancorp/project/phonyhuman",
+			DashboardURL: "http://localhost:4000/dashboard",
+			RefreshSec:   10,
+		},
+		useSSE: true,
+		sseSub: c.SubscribeSSE(context.Background()),
 	}
 }
 
-// Init starts the spinner, fires the health check, and begins listening for SSE events.
+// Init starts listening for SSE events.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.checkHealth(), waitForSSE(m.sseSub))
+	return waitForSSE(m.sseSub)
 }
 
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -77,16 +104,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sseSub.Close()
 			}
 			return m, tea.Quit
+		case "tab":
+			m.panel = (m.panel + 1) % 3
+		case "p":
+			m.paused = !m.paused
+			if m.paused {
+				m.metrics.FleetStatus = "paused"
+			} else {
+				m.metrics.FleetStatus = "running"
+			}
 		}
-
-	case healthMsg:
-		m.loading = false
-		if msg.err != nil {
-			m.healthErr = msg.err
-		} else {
-			m.healthStatus = msg.resp.Status
-		}
-		return m, nil
 
 	case stateMsg:
 		if msg.err != nil {
@@ -111,30 +138,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Batch(m.pollState(), schedulePoll())
-
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
 	}
-
 	return m, nil
 }
 
-// View renders the current state.
+// View renders the dashboard.
 func (m Model) View() string {
-	return view.Render(m.client.BaseURL(), m.loading, m.healthStatus, m.healthErr, m.spinner.View())
-}
-
-// checkHealth returns a Cmd that performs the health check.
-func (m Model) checkHealth() tea.Cmd {
-	return func() tea.Msg {
-		resp, err := m.client.FetchHealth(context.Background())
-		if err != nil {
-			return healthMsg{err: err}
-		}
-		return healthMsg{resp: *resp}
-	}
+	return view.RenderDashboard(m.width, m.height, m.metrics, m.limits, m.project)
 }
 
 // waitForSSE returns a Cmd that blocks until the next SSE event arrives.
