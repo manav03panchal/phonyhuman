@@ -13,6 +13,8 @@ defmodule SymphonyElixir.AgentRunner do
 
     case Workspace.create_for_issue(issue) do
       {:ok, workspace} ->
+        Workspace.write_mcp_json(workspace)
+
         try do
           with :ok <- Workspace.run_before_run_hook(workspace, issue),
                :ok <- run_agent_turns(workspace, issue, agent_update_recipient, opts) do

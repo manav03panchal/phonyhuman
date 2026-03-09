@@ -115,6 +115,7 @@ defmodule SymphonyElixir.TestSupport do
           agent_turn_timeout_ms: 3_600_000,
           agent_read_timeout_ms: 5_000,
           agent_stall_timeout_ms: 300_000,
+          mcp_servers: nil,
           hook_after_create: nil,
           hook_before_run: nil,
           hook_after_run: nil,
@@ -152,6 +153,7 @@ defmodule SymphonyElixir.TestSupport do
     agent_turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
     agent_read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
     agent_stall_timeout_ms = Keyword.get(config, :agent_stall_timeout_ms)
+    mcp_servers = Keyword.get(config, :mcp_servers)
     hook_after_create = Keyword.get(config, :hook_after_create)
     hook_before_run = Keyword.get(config, :hook_before_run)
     hook_after_run = Keyword.get(config, :hook_after_run)
@@ -193,6 +195,7 @@ defmodule SymphonyElixir.TestSupport do
         "  turn_timeout_ms: #{yaml_value(agent_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(agent_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(agent_stall_timeout_ms)}",
+        agent_server_yaml(mcp_servers),
         hooks_yaml(
           hook_after_create,
           hook_before_run,
@@ -260,6 +263,14 @@ defmodule SymphonyElixir.TestSupport do
     ]
     |> Enum.join("\n")
   end
+
+  defp agent_server_yaml(nil), do: nil
+
+  defp agent_server_yaml(mcp_servers) when is_map(mcp_servers) do
+    "agent_server:\n  mcp_servers: #{yaml_value(mcp_servers)}"
+  end
+
+  defp agent_server_yaml(_), do: nil
 
   defp server_yaml(nil, nil), do: nil
 
