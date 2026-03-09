@@ -15,7 +15,11 @@ func main() {
 	url := flag.String("url", "http://localhost:4000", "Symphony API base URL")
 	flag.Parse()
 
-	c := client.New(*url)
+	c, err := client.New(*url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 	m := model.New(c)
 
 	p := tea.NewProgram(m)

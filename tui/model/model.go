@@ -1,6 +1,8 @@
 package model
 
 import (
+	"context"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -12,7 +14,7 @@ import (
 
 // healthMsg carries the result of a health check.
 type healthMsg struct {
-	resp types.HealthResponse
+	resp types.Health
 	err  error
 }
 
@@ -71,13 +73,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the current state.
 func (m Model) View() string {
-	return view.Render(m.client.BaseURL, m.loading, m.healthStatus, m.healthErr, m.spinner.View())
+	return view.Render(m.client.BaseURL(), m.loading, m.healthStatus, m.healthErr, m.spinner.View())
 }
 
 // checkHealth returns a Cmd that performs the health check.
 func (m Model) checkHealth() tea.Cmd {
 	return func() tea.Msg {
-		resp, err := m.client.CheckHealth()
-		return healthMsg{resp: resp, err: err}
+		resp, err := m.client.FetchHealth(context.Background())
+		if err != nil {
+			return healthMsg{err: err}
+		}
+		return healthMsg{resp: *resp}
 	}
 }
