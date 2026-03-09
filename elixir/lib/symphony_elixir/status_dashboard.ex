@@ -53,8 +53,13 @@ defmodule SymphonyElixir.StatusDashboard do
     :last_rendered_at_ms,
     :pending_content,
     :flush_timer_ref,
-    :last_snapshot_fingerprint
+    :last_snapshot_fingerprint,
+    :prompt_mode,
+    :keyboard_reader_pid,
+    :saved_terminal_settings
   ]
+
+  @type prompt_mode :: nil | :confirm_pause | :confirm_resume
 
   @type t :: %__MODULE__{
           refresh_ms: pos_integer(),
@@ -71,7 +76,10 @@ defmodule SymphonyElixir.StatusDashboard do
           last_rendered_at_ms: integer() | nil,
           pending_content: String.t() | nil,
           flush_timer_ref: reference() | nil,
-          last_snapshot_fingerprint: term() | nil
+          last_snapshot_fingerprint: term() | nil,
+          prompt_mode: prompt_mode(),
+          keyboard_reader_pid: pid() | nil,
+          saved_terminal_settings: String.t() | nil
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -102,8 +110,16 @@ defmodule SymphonyElixir.StatusDashboard do
     refresh_ms = refresh_ms_override || Config.observability_refresh_ms()
     render_interval_ms = render_interval_ms_override || Config.observability_render_interval_ms()
     render_fun = Keyword.get(opts, :render_fun, &render_to_terminal/1)
+    keyboard_enabled = Keyword.get(opts, :keyboard, true)
     enabled = resolve_override(enabled_override, Config.observability_enabled?() and dashboard_enabled?())
     schedule_tick(refresh_ms, enabled)
+
+    {keyboard_reader_pid, saved_settings} =
+      if enabled and keyboard_enabled and tty_available?() do
+        start_keyboard_reader()
+      else
+        {nil, nil}
+      end
 
     {:ok,
      %__MODULE__{
@@ -121,8 +137,17 @@ defmodule SymphonyElixir.StatusDashboard do
        last_rendered_at_ms: nil,
        pending_content: nil,
        flush_timer_ref: nil,
-       last_snapshot_fingerprint: nil
+       last_snapshot_fingerprint: nil,
+       prompt_mode: nil,
+       keyboard_reader_pid: keyboard_reader_pid,
+       saved_terminal_settings: saved_settings
      }}
+  end
+
+  @spec terminate(term(), t()) :: :ok
+  def terminate(_reason, %{saved_terminal_settings: settings}) do
+    restore_terminal(settings)
+    :ok
   end
 
   @spec render_offline_status() :: :ok
@@ -173,6 +198,44 @@ defmodule SymphonyElixir.StatusDashboard do
   end
 
   def handle_info({:flush_render, _timer_ref}, state), do: {:noreply, state}
+
+  # Keyboard input handlers
+  def handle_info({:keypress, "p"}, %{prompt_mode: nil} = state) do
+    prompt =
+      case fleet_currently_paused?() do
+        true -> :confirm_resume
+        false -> :confirm_pause
+      end
+
+    state = %{state | prompt_mode: prompt}
+    {:noreply, force_rerender(state)}
+  end
+
+  def handle_info({:keypress, key}, %{prompt_mode: :confirm_pause} = state) when key in ["y", "Y"] do
+    Orchestrator.pause_fleet()
+    state = %{state | prompt_mode: nil}
+    {:noreply, force_rerender(state)}
+  end
+
+  def handle_info({:keypress, key}, %{prompt_mode: :confirm_resume} = state) when key in ["y", "Y"] do
+    Orchestrator.resume_fleet()
+    state = %{state | prompt_mode: nil}
+    {:noreply, force_rerender(state)}
+  end
+
+  def handle_info({:keypress, key}, %{prompt_mode: mode} = state)
+      when mode in [:confirm_pause, :confirm_resume] and key in ["n", "N", "\e"] do
+    state = %{state | prompt_mode: nil}
+    {:noreply, force_rerender(state)}
+  end
+
+  def handle_info({:keypress, _key}, %{prompt_mode: mode} = state)
+      when mode in [:confirm_pause, :confirm_resume] do
+    {:noreply, state}
+  end
+
+  def handle_info({:keypress, _key}, state), do: {:noreply, state}
+
   def handle_info(:tick, state), do: {:noreply, state}
 
   defp refresh_runtime_config(%__MODULE__{} = state) do
@@ -213,7 +276,7 @@ defmodule SymphonyElixir.StatusDashboard do
         format_snapshot_content(
           snapshot_data,
           tps
-        )
+        ) <> format_prompt_suffix(state.prompt_mode)
 
       state
       |> maybe_update_snapshot_fingerprint(snapshot_data)
@@ -449,7 +512,9 @@ defmodule SymphonyElixir.StatusDashboard do
       colorize(" — #{reason} (until #{paused_until})", @ansi_orange)
   end
 
-  defp format_fleet_status_line(_snapshot), do: []
+  defp format_fleet_status_line(_snapshot) do
+    colorize("│ Fleet: ", @ansi_bold) <> colorize("RUNNING", @ansi_green)
+  end
 
   defp format_cost_line(cost_usd, _model) when is_nil(cost_usd) or cost_usd == 0, do: []
 
@@ -1154,6 +1219,99 @@ defmodule SymphonyElixir.StatusDashboard do
 
   defp normalize_status_lines(content) do
     content
+  end
+
+  defp force_rerender(state) do
+    %{state | last_snapshot_fingerprint: nil, last_rendered_content: nil}
+    |> maybe_render()
+  end
+
+  defp fleet_currently_paused? do
+    case snapshot_payload() do
+      {:ok, %{fleet_status: "paused"}} -> true
+      _ -> false
+    end
+  end
+
+  defp format_prompt_suffix(nil), do: ""
+  defp format_prompt_suffix(:confirm_pause), do: "\n" <> colorize("  Pause fleet? (y/n) ", @ansi_yellow)
+  defp format_prompt_suffix(:confirm_resume), do: "\n" <> colorize("  Resume fleet? (y/n) ", @ansi_yellow)
+
+  defp tty_available? do
+    case :io.columns() do
+      {:ok, _} -> true
+      _ -> false
+    end
+  end
+
+  @spec start_keyboard_reader() :: {pid(), String.t() | nil}
+  defp start_keyboard_reader do
+    dashboard = self()
+    saved_settings = save_terminal_settings()
+    setup_raw_terminal()
+
+    pid =
+      spawn_link(fn ->
+        case :file.open(~c"/dev/tty", [:read, :binary, :raw]) do
+          {:ok, tty} ->
+            keyboard_read_loop(tty, dashboard)
+
+          {:error, reason} ->
+            Logger.debug("Could not open /dev/tty for keyboard input: #{inspect(reason)}")
+        end
+      end)
+
+    {pid, saved_settings}
+  end
+
+  defp keyboard_read_loop(tty, dashboard) do
+    case :file.read(tty, 1) do
+      {:ok, data} ->
+        send(dashboard, {:keypress, data})
+        keyboard_read_loop(tty, dashboard)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp save_terminal_settings do
+    case :os.type() do
+      {:unix, _} ->
+        {output, 0} = System.cmd("sh", ["-c", "stty -g </dev/tty 2>/dev/null"])
+        String.trim(output)
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp setup_raw_terminal do
+    case :os.type() do
+      {:unix, _} -> System.cmd("sh", ["-c", "stty -icanon -echo min 1 </dev/tty 2>/dev/null"])
+      _ -> :ok
+    end
+  end
+
+  defp restore_terminal(nil) do
+    case :os.type() do
+      {:unix, _} -> System.cmd("sh", ["-c", "stty sane </dev/tty 2>/dev/null"])
+      _ -> :ok
+    end
+  end
+
+  defp restore_terminal(saved_settings) when is_binary(saved_settings) do
+    case :os.type() do
+      {:unix, _} ->
+        if String.match?(saved_settings, ~r/\A[0-9a-fA-F:]+\z/) do
+          System.cmd("sh", ["-c", "stty #{saved_settings} </dev/tty 2>/dev/null"])
+        end
+
+      _ ->
+        :ok
+    end
   end
 
   defp closing_border, do: "╰─"

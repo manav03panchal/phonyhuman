@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -308,4 +309,100 @@ func formatDuration(seconds int) string {
 	m := (seconds % 3600) / 60
 	s := seconds % 60
 	return fmt.Sprintf("%dh %dm %ds", h, m, s)
+}
+
+const maxErrorLen = 60
+
+var (
+	retryIdentifierStyle = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
+	retryAttemptStyle    = lipgloss.NewStyle().Foreground(colorYellow)
+	retryCountdownStyle  = lipgloss.NewStyle().Foreground(colorCyan)
+	retryErrorStyle      = lipgloss.NewStyle().Foreground(colorDimGray)
+	promptLabelStyle     = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+)
+
+// RenderBackoffQueue renders the backoff/retry queue panel.
+func RenderBackoffQueue(state *types.State, width int) string {
+	title := sectionTitle.Render("─ Backoff Queue")
+
+	if state == nil || len(state.Retrying) == 0 {
+		content := title + "\n" + valueDim.Render("  No queued retries")
+		return panelBorder.Width(width - 4).Render(content)
+	}
+
+	rows := []string{title}
+	for _, entry := range state.Retrying {
+		rows = append(rows, renderRetryRow(entry))
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return panelBorder.Width(width - 4).Render(content)
+}
+
+func renderRetryRow(entry types.RetryEntry) string {
+	identifier := entry.IssueIdentifier
+	if identifier == "" {
+		identifier = entry.IssueID
+	}
+
+	countdown := countdownFromDueAt(entry.DueAt)
+	errText := truncateError(entry.Error)
+
+	row := fmt.Sprintf("  ↻ %s  %s  in %s",
+		retryIdentifierStyle.Render(identifier),
+		retryAttemptStyle.Render(fmt.Sprintf("attempt=%d", entry.Attempt)),
+		retryCountdownStyle.Render(countdown),
+	)
+
+	if errText != "" {
+		row += "  " + retryErrorStyle.Render(errText)
+	}
+
+	return row
+}
+
+func countdownFromDueAt(dueAt string) string {
+	if dueAt == "" {
+		return "n/a"
+	}
+
+	t, err := time.Parse(time.RFC3339, dueAt)
+	if err != nil {
+		return "n/a"
+	}
+
+	remaining := time.Until(t)
+	if remaining <= 0 {
+		return "now"
+	}
+
+	secs := remaining.Seconds()
+	if secs < 60 {
+		return fmt.Sprintf("%.1fs", secs)
+	}
+	mins := int(math.Floor(secs / 60))
+	remSecs := int(secs) % 60
+	return fmt.Sprintf("%dm%ds", mins, remSecs)
+}
+
+func truncateError(s string) string {
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	if len(s) > maxErrorLen {
+		s = s[:maxErrorLen-1] + "…"
+	}
+	return s
+}
+
+// RenderPrompt renders the fleet pause/resume confirmation prompt.
+func RenderPrompt(isPause bool, width int) string {
+	msg := "Resume fleet? (y/n)"
+	if isPause {
+		msg = "Pause fleet? (y/n)"
+	}
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center,
+		promptLabelStyle.Render(msg))
 }

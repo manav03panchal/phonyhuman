@@ -163,6 +163,11 @@ type ProjectInfo struct {
 	RefreshSec   int
 }
 
+// FleetActionResponse is returned by fleet pause/resume endpoints.
+type FleetActionResponse struct {
+	Status string `json:"status"`
+}
+
 // --- Agents table display types ---
 
 // AgentStatus represents the lifecycle status of an agent for display purposes.
