@@ -960,14 +960,13 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "application configures a rotating file logger handler" do
-    assert {:ok, handler_config} = :logger.get_handler_config(:symphony_disk_log)
-    assert handler_config.module == :logger_disk_log_h
+    assert {:ok, handler_config} = :logger.get_handler_config(:symphony_file_log)
+    assert handler_config.module == :logger_std_h
 
-    disk_config = handler_config.config
-    assert disk_config.type == :wrap
-    assert is_list(disk_config.file)
-    assert disk_config.max_no_bytes > 0
-    assert disk_config.max_no_files > 0
+    file_config = handler_config.config
+    assert is_list(file_config.file)
+    assert file_config.max_no_bytes > 0
+    assert file_config.max_no_files > 0
   end
 
   test "status dashboard humanizes full codex app-server event set" do

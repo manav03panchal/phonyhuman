@@ -981,7 +981,7 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
     # If no TUI or no port, run orchestrator in foreground as before
     if [[ -z "$tui_bin" || -z "$port_flag" ]]; then
         [[ -z "$tui_bin" ]] && dim "  Tip: build the TUI for a better experience: cd tui && go build -o symphony-tui ." && echo ""
-        exec "${cmd[@]}"
+        exec escript "${cmd[@]}"
     fi
 
     # ── Launch orchestrator in background, TUI in foreground ───────────
@@ -996,8 +996,24 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
     }
     trap cleanup EXIT INT TERM
 
+    # Kill any existing process on the port
+    local existing_pid
+    existing_pid=$(lsof -ti:"${port_flag}" 2>/dev/null || true)
+    if [[ -n "$existing_pid" ]]; then
+        dim "  Stopping existing process on port ${port_flag}..."; echo ""
+        kill "$existing_pid" 2>/dev/null || true
+        sleep 1
+    fi
+
+    # Verify escript is on PATH before backgrounding
+    if ! command -v escript &>/dev/null; then
+        find_erlang || die "Erlang/OTP not found. Cannot start orchestrator."
+    fi
+
     local orch_log="${wsroot_expanded}/orchestrator.log"
-    "${cmd[@]}" >"$orch_log" 2>&1 &
+    local escript_bin
+    escript_bin="$(command -v escript)"
+    "$escript_bin" "${cmd[@]}" </dev/null >"$orch_log" 2>&1 &
     _ORCH_PID=$!
 
     # Wait for health check
