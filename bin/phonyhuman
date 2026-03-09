@@ -950,7 +950,66 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
 
     cmd+=("$@")
 
-    exec "${cmd[@]}"
+    # ── Detect TUI binary ──────────────────────────────────────────────
+    local tui_bin=""
+    if [[ -x "$SCRIPT_PATH/../tui/symphony-tui" ]]; then
+        tui_bin="$SCRIPT_PATH/../tui/symphony-tui"
+    elif command -v symphony-tui &>/dev/null; then
+        tui_bin="$(command -v symphony-tui)"
+    fi
+
+    # If no TUI or no port, run orchestrator in foreground as before
+    if [[ -z "$tui_bin" || -z "$port_flag" ]]; then
+        [[ -z "$tui_bin" ]] && dim "  Tip: build the TUI for a better experience: cd tui && go build -o symphony-tui ." && echo ""
+        exec "${cmd[@]}"
+    fi
+
+    # ── Launch orchestrator in background, TUI in foreground ───────────
+    local orch_pid=""
+    cleanup() {
+        if [[ -n "$orch_pid" ]] && kill -0 "$orch_pid" 2>/dev/null; then
+            kill -TERM "$orch_pid" 2>/dev/null
+            wait "$orch_pid" 2>/dev/null || true
+        fi
+        rm -f "${workflow_file:-}"
+    }
+    trap cleanup EXIT INT TERM
+
+    local orch_log="${wsroot_expanded}/orchestrator.log"
+    "${cmd[@]}" >"$orch_log" 2>&1 &
+    orch_pid=$!
+
+    # Wait for health check
+    local api_url="http://localhost:${port_flag}"
+    local max_wait=30
+    local waited=0
+    dim "  Waiting for orchestrator..."; echo ""
+    while (( waited < max_wait )); do
+        if curl -sf "${api_url}/health" >/dev/null 2>&1; then
+            break
+        fi
+        # Check orchestrator didn't crash
+        if ! kill -0 "$orch_pid" 2>/dev/null; then
+            red "  Orchestrator exited unexpectedly."; echo ""
+            wait "$orch_pid" 2>/dev/null
+            exit 1
+        fi
+        sleep 1
+        (( waited++ ))
+    done
+
+    if (( waited >= max_wait )); then
+        red "  Orchestrator health check timed out after ${max_wait}s"; echo ""
+        cleanup
+        exit 1
+    fi
+
+    green "  Orchestrator ready — launching TUI"; echo ""
+    dim "  Orchestrator log: $orch_log"; echo ""
+    echo ""
+
+    # TUI in foreground — when it exits, we clean up the orchestrator
+    "$tui_bin" --url "$api_url"
 }
 
 # phonyhuman completions <shell>
