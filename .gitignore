@@ -1,0 +1,3 @@
+# TUI build artifacts
+bin/symphony-tui
+bin/symphony-tui-*

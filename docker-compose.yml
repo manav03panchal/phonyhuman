@@ -41,6 +41,8 @@ services:
       # - /usr/local/bin/claude:/usr/local/bin/claude:ro
       # Optional: mount gh CLI binary from host
       # - /usr/local/bin/gh:/usr/local/bin/gh:ro
+      # Optional: mount pre-built TUI binary from host
+      # - ./bin/symphony-tui:/usr/local/bin/symphony-tui:ro
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:4000/health"]
       interval: 30s

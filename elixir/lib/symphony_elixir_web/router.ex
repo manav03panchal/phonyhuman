@@ -43,9 +43,11 @@ defmodule SymphonyElixirWeb.Router do
     get("/health", HealthController, :index)
 
     get("/api/v1/state", ObservabilityApiController, :state)
+    get("/api/v1/events", EventsController, :events)
 
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)
+    match(:*, "/api/v1/events", ObservabilityApiController, :method_not_allowed)
     post("/api/v1/refresh", ObservabilityApiController, :refresh)
     match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
     post("/api/v1/fleet/pause", ObservabilityApiController, :pause)

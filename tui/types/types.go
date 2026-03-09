@@ -2,6 +2,12 @@
 // JSON responses for orchestrator state and health endpoints.
 package types
 
+import (
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
 // State represents the full orchestrator snapshot returned by GET /api/v1/state.
 type State struct {
 	GeneratedAt      string       `json:"generated_at"`
@@ -161,3 +167,68 @@ type ProjectInfo struct {
 type FleetActionResponse struct {
 	Status string `json:"status"`
 }
+
+// --- Agents table display types ---
+
+// AgentStatus represents the lifecycle status of an agent for display purposes.
+type AgentStatus string
+
+const (
+	StatusActive       AgentStatus = "active"
+	StatusTokenUpdate  AgentStatus = "token_update"
+	StatusTurnComplete AgentStatus = "turn_complete"
+	StatusError        AgentStatus = "error"
+	StatusDefault      AgentStatus = "default"
+)
+
+// StatusDot returns the dot character used for status display.
+func (s AgentStatus) StatusDot() string {
+	return "●"
+}
+
+// StatusColor returns the Lip Gloss color string for the status.
+// Colors: green=active, yellow=token_update, magenta=turn_complete, red=error, blue=default.
+func (s AgentStatus) StatusColor() string {
+	switch s {
+	case StatusActive:
+		return "42" // green
+	case StatusTokenUpdate:
+		return "220" // yellow
+	case StatusTurnComplete:
+		return "212" // magenta
+	case StatusError:
+		return "196" // red
+	default:
+		return "69" // blue
+	}
+}
+
+// Agent is a display-oriented view model for the agents table component.
+// It is converted from AgentEntry by the table adapter layer.
+type Agent struct {
+	ID        string                 `json:"id"`
+	Stage     string                 `json:"stage"`
+	PID       string                 `json:"pid"`
+	StartedAt time.Time              `json:"started_at"`
+	Turn      int                    `json:"turn"`
+	Tokens    int                    `json:"tokens"`
+	SessionID string                 `json:"session_id"`
+	Status    AgentStatus            `json:"status"`
+	LastEvent map[string]interface{} `json:"last_event"`
+}
+
+// AgentsUpdatedMsg is a Bubble Tea message carrying fresh agent state.
+type AgentsUpdatedMsg struct {
+	Agents []Agent
+}
+
+// AgentSelectedMsg is emitted when the user presses Enter on a table row.
+type AgentSelectedMsg struct {
+	Agent Agent
+}
+
+// Ensure messages satisfy tea.Msg (they do implicitly, but this documents intent).
+var (
+	_ tea.Msg = AgentsUpdatedMsg{}
+	_ tea.Msg = AgentSelectedMsg{}
+)
