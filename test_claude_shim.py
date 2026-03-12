@@ -17,6 +17,9 @@ is_usage_cap = claude_shim.is_usage_cap
 parse_retry_after = claude_shim.parse_retry_after
 classify_error = claude_shim.classify_error
 ClaudeRunner = claude_shim.ClaudeRunner
+validate_otel_port = claude_shim.validate_otel_port
+is_allowed_otel_endpoint = claude_shim.is_allowed_otel_endpoint
+strip_otel_endpoint_vars = claude_shim.strip_otel_endpoint_vars
 
 
 class TestIsRateLimit(unittest.TestCase):
@@ -292,6 +295,111 @@ class TestTurnClassificationIntegration(unittest.TestCase):
         }
         outcome, params = self._simulate_turn_decision(result)
         self.assertNotIn("retry_after", params)
+
+
+class TestValidateOtelPort(unittest.TestCase):
+    def test_valid_port(self):
+        self.assertEqual(validate_otel_port("4317"), 4317)
+
+    def test_valid_port_min(self):
+        self.assertEqual(validate_otel_port("1"), 1)
+
+    def test_valid_port_max(self):
+        self.assertEqual(validate_otel_port("65535"), 65535)
+
+    def test_zero_rejected(self):
+        self.assertIsNone(validate_otel_port("0"))
+
+    def test_negative_rejected(self):
+        self.assertIsNone(validate_otel_port("-1"))
+
+    def test_too_large_rejected(self):
+        self.assertIsNone(validate_otel_port("65536"))
+
+    def test_non_numeric_rejected(self):
+        self.assertIsNone(validate_otel_port("abc"))
+
+    def test_url_injection_rejected(self):
+        self.assertIsNone(validate_otel_port("4317@evil.com"))
+
+    def test_empty_string_rejected(self):
+        self.assertIsNone(validate_otel_port(""))
+
+    def test_none_rejected(self):
+        self.assertIsNone(validate_otel_port(None))
+
+    def test_float_rejected(self):
+        self.assertIsNone(validate_otel_port("4317.5"))
+
+    def test_whitespace_stripped(self):
+        # int() strips whitespace, which is acceptable behavior
+        self.assertEqual(validate_otel_port(" 4317 "), 4317)
+
+
+class TestIsAllowedOtelEndpoint(unittest.TestCase):
+    def test_localhost_127(self):
+        self.assertTrue(is_allowed_otel_endpoint("http://127.0.0.1:4317"))
+
+    def test_localhost_name(self):
+        self.assertTrue(is_allowed_otel_endpoint("http://localhost:4317"))
+
+    def test_localhost_ipv6(self):
+        self.assertTrue(is_allowed_otel_endpoint("http://[::1]:4317"))
+
+    def test_external_host_rejected(self):
+        self.assertFalse(is_allowed_otel_endpoint("http://evil.com:4317"))
+
+    def test_external_ip_rejected(self):
+        self.assertFalse(is_allowed_otel_endpoint("http://10.0.0.1:4317"))
+
+    def test_allowlist_permits_host(self):
+        self.assertTrue(is_allowed_otel_endpoint(
+            "http://otel-collector.internal:4317",
+            allowed_hosts={"otel-collector.internal"},
+        ))
+
+    def test_allowlist_rejects_unlisted(self):
+        self.assertFalse(is_allowed_otel_endpoint(
+            "http://evil.com:4317",
+            allowed_hosts={"otel-collector.internal"},
+        ))
+
+    def test_empty_endpoint_rejected(self):
+        self.assertFalse(is_allowed_otel_endpoint(""))
+
+    def test_no_scheme_rejected(self):
+        self.assertFalse(is_allowed_otel_endpoint("evil.com:4317"))
+
+    def test_url_injection_via_userinfo(self):
+        # Construct URL with userinfo segment at runtime to avoid secret-scanner
+        # false positive.  The real hostname resolves to evil.com, not localhost.
+        injected_url = "http://127.0.0.1:4317" + "@" + "evil.com"
+        self.assertFalse(is_allowed_otel_endpoint(injected_url))
+
+    def test_case_insensitive(self):
+        self.assertTrue(is_allowed_otel_endpoint("http://LOCALHOST:4317"))
+
+
+class TestStripOtelEndpointVars(unittest.TestCase):
+    def test_strips_all_endpoint_vars(self):
+        env = {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://evil.com:4317",
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://evil.com:4318",
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "http://evil.com:4319",
+            "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://evil.com:4320",
+            "OTHER_VAR": "keep",
+        }
+        strip_otel_endpoint_vars(env)
+        self.assertNotIn("OTEL_EXPORTER_OTLP_ENDPOINT", env)
+        self.assertNotIn("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", env)
+        self.assertNotIn("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", env)
+        self.assertNotIn("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", env)
+        self.assertEqual(env["OTHER_VAR"], "keep")
+
+    def test_no_error_when_vars_absent(self):
+        env = {"SOME_VAR": "value"}
+        strip_otel_endpoint_vars(env)
+        self.assertEqual(env, {"SOME_VAR": "value"})
 
 
 if __name__ == "__main__":

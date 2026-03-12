@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import threading
+import urllib.parse
 import urllib.request
 import urllib.error
 import uuid
@@ -231,6 +232,56 @@ def classify_error(text):
 
 
 # ---------------------------------------------------------------------------
+# OTEL endpoint validation
+# ---------------------------------------------------------------------------
+
+_LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+# OTEL env vars that specify exporter endpoints — must be stripped from
+# inherited environment to prevent bypass via protocol-specific overrides.
+_OTEL_ENDPOINT_VARS = [
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+]
+
+
+def validate_otel_port(port_str):
+    """Validate that *port_str* is an integer in 1-65535.
+
+    Returns the integer port on success, or ``None`` on failure.
+    """
+    try:
+        port = int(port_str)
+    except (ValueError, TypeError):
+        return None
+    if 1 <= port <= 65535:
+        return port
+    return None
+
+
+def is_allowed_otel_endpoint(endpoint, allowed_hosts=None):
+    """Return True if *endpoint* points to localhost or an allowed host.
+
+    *allowed_hosts* is an optional set of additional hostnames/IPs to allow.
+    """
+    try:
+        parsed = urllib.parse.urlparse(endpoint)
+        host = (parsed.hostname or "").lower()
+    except Exception:
+        return False
+    allowed = _LOCALHOST_HOSTS | (allowed_hosts or set())
+    return host in allowed
+
+
+def strip_otel_endpoint_vars(env):
+    """Remove all OTEL exporter endpoint vars from *env* dict in-place."""
+    for var in _OTEL_ENDPOINT_VARS:
+        env.pop(var, None)
+
+
+# ---------------------------------------------------------------------------
 # Claude Code runner
 # ---------------------------------------------------------------------------
 
@@ -258,15 +309,43 @@ class ClaudeRunner:
         # Remove CLAUDECODE to avoid "nested session" detection.
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
+        # Strip any inherited OTEL exporter endpoint vars to prevent bypass
+        # via protocol-specific overrides (e.g. OTEL_EXPORTER_OTLP_TRACES_ENDPOINT).
+        strip_otel_endpoint_vars(env)
+
         # Inject OpenTelemetry environment variables unless explicitly disabled.
         if os.environ.get("SYMPHONY_OTEL_DISABLED") != "1":
-            otel_port = os.environ.get("SYMPHONY_OTEL_PORT", "4317")
-            env["CLAUDE_CODE_ENABLE_TELEMETRY"] = "1"
-            env["OTEL_METRICS_EXPORTER"] = "otlp"
-            env["OTEL_LOGS_EXPORTER"] = "otlp"
-            env["OTEL_EXPORTER_OTLP_ENDPOINT"] = f"http://127.0.0.1:{otel_port}"
-            env["OTEL_METRIC_EXPORT_INTERVAL"] = "5000"
-            env["OTEL_LOGS_EXPORT_INTERVAL"] = "2000"
+            otel_port_str = os.environ.get("SYMPHONY_OTEL_PORT", "4317")
+            otel_port = validate_otel_port(otel_port_str)
+            if otel_port is None:
+                log_error(
+                    f"SYMPHONY_OTEL_PORT is not a valid port number: {otel_port_str!r}, "
+                    "disabling OTEL for this subprocess"
+                )
+            else:
+                endpoint = f"http://127.0.0.1:{otel_port}"
+
+                # Optional: allow a custom endpoint if it passes allowlist validation.
+                custom_endpoint = os.environ.get("SYMPHONY_OTEL_ENDPOINT")
+                if custom_endpoint:
+                    allowed_raw = os.environ.get("SYMPHONY_OTEL_ALLOWED_HOSTS", "")
+                    allowed_hosts = {h.strip() for h in allowed_raw.split(",") if h.strip()}
+                    if is_allowed_otel_endpoint(custom_endpoint, allowed_hosts):
+                        endpoint = custom_endpoint
+                    else:
+                        log_error(
+                            f"SYMPHONY_OTEL_ENDPOINT rejected — host is not localhost or in "
+                            f"SYMPHONY_OTEL_ALLOWED_HOSTS: {custom_endpoint}"
+                        )
+                        endpoint = None
+
+                if endpoint:
+                    env["CLAUDE_CODE_ENABLE_TELEMETRY"] = "1"
+                    env["OTEL_METRICS_EXPORTER"] = "otlp"
+                    env["OTEL_LOGS_EXPORTER"] = "otlp"
+                    env["OTEL_EXPORTER_OTLP_ENDPOINT"] = endpoint
+                    env["OTEL_METRIC_EXPORT_INTERVAL"] = "5000"
+                    env["OTEL_LOGS_EXPORT_INTERVAL"] = "2000"
 
         log(f"Spawning Claude in {self.cwd}")
         try:
