@@ -61,7 +61,7 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     :sys.replace_state(pid, fn _ ->
       initial_state
       |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+      |> Map.put(:claimed, Map.put(initial_state.claimed, issue_id, DateTime.utc_now()))
     end)
 
     # Send OTel metrics with token data
@@ -240,7 +240,7 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     :sys.replace_state(pid, fn _ ->
       initial_state
       |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+      |> Map.put(:claimed, Map.put(initial_state.claimed, issue_id, DateTime.utc_now()))
     end)
 
     snapshot = GenServer.call(pid, :snapshot)
@@ -325,7 +325,7 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     :sys.replace_state(pid, fn _ ->
       initial_state
       |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+      |> Map.put(:claimed, Map.put(initial_state.claimed, issue_id, DateTime.utc_now()))
     end)
 
     # Step 1: OTel provides real-time token data
@@ -449,7 +449,7 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     :sys.replace_state(pid, fn _ ->
       initial_state
       |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+      |> Map.put(:claimed, Map.put(initial_state.claimed, issue_id, DateTime.utc_now()))
     end)
 
     # Simulate process completion

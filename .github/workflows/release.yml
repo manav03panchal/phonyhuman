@@ -149,3 +149,39 @@ jobs:
           files: ${{ env.TARBALL }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  generate-checksums:
+    needs: build-and-upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download all release tarballs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p tarballs
+          gh release download "${{ steps.version.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.tar.gz" \
+            --dir tarballs
+
+      - name: Generate checksums
+        run: |
+          cd tarballs
+          sha256sum *.tar.gz | sort > ../checksums.txt
+          echo "Generated checksums:"
+          cat ../checksums.txt
+
+      - name: Upload checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
