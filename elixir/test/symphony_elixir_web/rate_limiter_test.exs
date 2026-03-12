@@ -74,6 +74,88 @@ defmodule SymphonyElixirWeb.RateLimiterTest do
     end
   end
 
+  describe "concurrent plug init" do
+    test "concurrent ensure_table calls don't crash" do
+      # Delete and recreate the table owned by the test process so it
+      # persists across concurrent Task processes (ETS tables are owned
+      # by their creator and destroyed when that process exits).
+      if :ets.whereis(:symphony_rate_limiter) != :undefined do
+        :ets.delete(:symphony_rate_limiter)
+      end
+
+      # First request creates the table owned by the test process
+      # (Phoenix.ConnTest.dispatch runs in the calling process)
+      conn = build_conn() |> get("/api/v1/state")
+      assert conn.status in [200, 429, 503]
+      assert :ets.whereis(:symphony_rate_limiter) != :undefined
+
+      # Now spawn concurrent requests — each hits ensure_table which
+      # attempts :ets.new and rescues ArgumentError (table exists).
+      # This verifies the atomic try/rescue pattern handles concurrency.
+      tasks =
+        for _ <- 1..50 do
+          Task.async(fn ->
+            conn = build_conn() |> get("/api/v1/state")
+            conn.status
+          end)
+        end
+
+      results = Task.await_many(tasks, 5_000)
+
+      # All requests should succeed (no crashes from ensure_table)
+      assert Enum.all?(results, fn status -> status in [200, 429, 503] end)
+
+      # Table should still exist and be usable
+      assert :ets.whereis(:symphony_rate_limiter) != :undefined
+      assert :ets.info(:symphony_rate_limiter, :type) == :set
+    end
+
+    test "ensure_table atomic creation pattern handles concurrent :ets.new" do
+      # Directly test the atomic try/rescue pattern by racing 50 processes
+      # to create the same named ETS table.
+      table = :test_concurrent_create
+
+      if :ets.whereis(table) != :undefined do
+        :ets.delete(table)
+      end
+
+      barrier = :counters.new(1, [])
+      n = 50
+
+      tasks =
+        for _ <- 1..n do
+          Task.async(fn ->
+            :counters.add(barrier, 1, 1)
+            # Spin until all tasks are ready to race
+            Stream.repeatedly(fn -> :counters.get(barrier, 1) end)
+            |> Enum.find(&(&1 >= n))
+
+            try do
+              :ets.new(table, [:public, :set, :named_table])
+              :created
+            rescue
+              ArgumentError -> :already_exists
+            end
+          end)
+        end
+
+      results = Task.await_many(tasks, 5_000)
+
+      created_count = Enum.count(results, &(&1 == :created))
+      exists_count = Enum.count(results, &(&1 == :already_exists))
+
+      # At least one must have created the table
+      assert created_count >= 1
+      # All tasks completed without crashing
+      assert created_count + exists_count == n
+
+      # Cleanup
+      if :ets.whereis(table) != :undefined do
+        :ets.delete(table)
+      end
+    end
+  end
+
   describe "rate limiting" do
     setup do
       if :ets.whereis(:symphony_rate_limiter) != :undefined do
