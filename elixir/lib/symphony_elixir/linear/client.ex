@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Linear.Client do
   """
 
   require Logger
-  alias SymphonyElixir.{Config, Linear.Issue}
+  alias SymphonyElixir.{Config, Linear.Issue, LogRedactor}
 
   @issue_page_size 50
   @max_error_body_log_bytes 1_000
@@ -177,7 +177,7 @@ defmodule SymphonyElixir.Linear.Client do
         {:error, {:linear_api_status, response.status}}
 
       {:error, reason} ->
-        Logger.error("Linear GraphQL request failed: #{inspect(reason)}")
+        Logger.error("Linear GraphQL request failed: #{reason |> inspect() |> LogRedactor.redact()}")
         {:error, {:linear_api_request, reason}}
     end
   end
@@ -299,7 +299,8 @@ defmodule SymphonyElixir.Linear.Client do
       |> Map.get(:body)
       |> summarize_error_body()
 
-    operation_name <> " body=" <> body
+    (operation_name <> " body=" <> body)
+    |> LogRedactor.redact()
   end
 
   defp summarize_error_body(body) when is_binary(body) do
