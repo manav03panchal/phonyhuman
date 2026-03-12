@@ -1041,6 +1041,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "config validate! rejects empty project_slug" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_project_slug: "")
+
+    assert {:error, :missing_linear_project_slug} = Config.validate!()
+  end
+
   test "config with [agent] section loads agent-server settings correctly" do
     workflow = """
     ---
