@@ -219,9 +219,6 @@ defmodule SymphonyElixir.AgentRunnerTest do
           "symphony-turn-count-#{System.unique_integer([:positive])}"
         )
 
-      # Each turn sends both response and completed in the same read iteration
-      # because there is no server write between them to trigger a new read.
-      # count 1: init, count 2: initialized (thread response), count 2+k: turn k
       multi_turn_script = """
       #!/bin/sh
       count=0
@@ -442,7 +439,6 @@ defmodule SymphonyElixir.AgentRunnerTest do
       {test_root, _workspace_root, _agent_binary} = setup_workspace_and_agent()
 
       try do
-        # Use a binary that exits immediately to cause session start failure
         bad_binary = Path.join(test_root, "bad-codex")
 
         File.write!(bad_binary, """
