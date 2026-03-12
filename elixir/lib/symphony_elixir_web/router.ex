@@ -12,6 +12,7 @@ defmodule SymphonyElixirWeb.Router do
     plug(:put_root_layout, html: {SymphonyElixirWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
+    plug(SymphonyElixirWeb.Plugs.ContentSecurityPolicy)
   end
 
   pipeline :api do
@@ -21,6 +22,7 @@ defmodule SymphonyElixirWeb.Router do
       "strict-transport-security" => "max-age=63072000"
     })
 
+    plug(SymphonyElixirWeb.Plugs.ContentSecurityPolicy, policy: :api)
     plug(SymphonyElixirWeb.Plugs.RateLimiter)
   end
 
