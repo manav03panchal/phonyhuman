@@ -1,3 +1,4 @@
 # TUI build artifacts
 bin/symphony-tui
 bin/symphony-tui-*
+__pycache__/
