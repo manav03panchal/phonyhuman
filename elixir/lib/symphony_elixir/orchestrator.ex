@@ -10,6 +10,9 @@ defmodule SymphonyElixir.Orchestrator do
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
 
+  # Default timeout for GenServer.call operations (e.g. refresh, fleet control).
+  # Matches the snapshot default; avoids the 5 s default under heavy load.
+  @call_timeout 15_000
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
   # Slightly above the dashboard render interval so "checking now…" can render.
@@ -988,7 +991,7 @@ defmodule SymphonyElixir.Orchestrator do
   @spec request_refresh(GenServer.server()) :: map() | :unavailable
   def request_refresh(server) do
     if Process.whereis(server) do
-      GenServer.call(server, :request_refresh)
+      GenServer.call(server, :request_refresh, @call_timeout)
     else
       :unavailable
     end
@@ -1000,7 +1003,7 @@ defmodule SymphonyElixir.Orchestrator do
   @spec pause_fleet(GenServer.server(), String.t() | nil) :: :ok | :unavailable
   def pause_fleet(server, reason) do
     if Process.whereis(server) do
-      GenServer.call(server, {:fleet_pause, reason})
+      GenServer.call(server, {:fleet_pause, reason}, @call_timeout)
     else
       :unavailable
     end
@@ -1012,7 +1015,7 @@ defmodule SymphonyElixir.Orchestrator do
   @spec resume_fleet(GenServer.server()) :: :ok | :unavailable
   def resume_fleet(server) do
     if Process.whereis(server) do
-      GenServer.call(server, :fleet_resume)
+      GenServer.call(server, :fleet_resume, @call_timeout)
     else
       :unavailable
     end
