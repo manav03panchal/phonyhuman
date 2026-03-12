@@ -11,8 +11,8 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
         next_poll_due_at_ms: System.monotonic_time(:millisecond) + 30_000,
         poll_check_in_progress: false,
         running: %{},
-        completed: MapSet.new(),
-        claimed: MapSet.new(),
+        completed: %{},
+        claimed: %{},
         retry_attempts: %{},
         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         agent_rate_limits: nil,
@@ -89,7 +89,7 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
       %{
         state
         | running: Map.put(state.running, issue_id, entry),
-          claimed: MapSet.put(state.claimed, issue_id)
+          claimed: Map.put(state.claimed, issue_id, DateTime.utc_now())
       }
     end)
   end
