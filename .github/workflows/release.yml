@@ -57,10 +57,23 @@ jobs:
           otp-version: "28"
           elixir-version: "1.19"
 
+      - name: Cache Elixir dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            elixir/deps
+            elixir/_build
+          key: elixir-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('elixir/mix.lock') }}
+          restore-keys: |
+            elixir-${{ runner.os }}-otp28-elixir1.19-
+
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.23"
+          cache-dependency-path: tui/go.sum
 
       - name: Build escript
         working-directory: elixir
