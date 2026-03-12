@@ -68,5 +68,27 @@ defmodule SymphonyElixir.LogRedactorTest do
       assert original == "safe log message"
       assert redacted == "safe log message"
     end
+
+    test "redacts Authorization header tuples in inspected output" do
+      inspected = ~s({"Authorization", "lin_api_secret123"})
+      result = LogRedactor.redact(inspected)
+      refute result =~ "lin_api_secret123"
+      assert result =~ "[REDACTED]"
+    end
+
+    test "redacts lowercase authorization header tuples in inspected output" do
+      inspected = ~s({"authorization", "some_unknown_token"})
+      result = LogRedactor.redact(inspected)
+      refute result =~ "some_unknown_token"
+      assert result =~ "[REDACTED]"
+    end
+
+    test "redacts Authorization header in inspected keyword list context" do
+      inspected = ~s([{"Authorization", "mytoken123"}, {"Content-Type", "application/json"}])
+      result = LogRedactor.redact(inspected)
+      refute result =~ "mytoken123"
+      assert result =~ "[REDACTED]"
+      assert result =~ "Content-Type"
+    end
   end
 end
