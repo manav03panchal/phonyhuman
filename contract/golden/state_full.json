@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-03-08T12:00:00Z",
+  "counts": {
+    "running": 1,
+    "retrying": 1
+  },
+  "running": [
+    {
+      "issue_id": "uuid-issue-1",
+      "issue_identifier": "HUM-100",
+      "state": "In Progress",
+      "session_id": "sess-abc",
+      "turn_count": 5,
+      "last_event": "tool_call_completed",
+      "last_message": "Running tests",
+      "started_at": "2026-03-08T11:00:00Z",
+      "last_event_at": "2026-03-08T11:55:00Z",
+      "model": "claude-opus-4-6",
+      "tokens": {
+        "input_tokens": 10000,
+        "output_tokens": 2000,
+        "total_tokens": 12000,
+        "cache_read_tokens": 5000,
+        "cache_hit_rate": 33.33,
+        "cost_usd": 0.42
+      },
+      "lines_changed": 99,
+      "commits_count": 3,
+      "prs_count": 1,
+      "tool_calls": 15,
+      "tool_avg_duration_ms": 250,
+      "api_errors": 1,
+      "active_time_seconds": 300
+    }
+  ],
+  "retrying": [
+    {
+      "issue_id": "uuid-issue-2",
+      "issue_identifier": "HUM-200",
+      "attempt": 3,
+      "due_at": "2026-03-08T12:05:00Z",
+      "error": "rate limited"
+    }
+  ],
+  "agent_totals": {
+    "input_tokens": 50000,
+    "output_tokens": 15000,
+    "total_tokens": 65000,
+    "cache_read_tokens": 30000,
+    "cache_creation_tokens": 10000,
+    "cache_hit_rate": 37.5,
+    "cost_usd": 2.50,
+    "model": null,
+    "seconds_running": 1800,
+    "lines_changed": 250,
+    "commits_count": 10,
+    "prs_count": 3,
+    "tool_calls": 50,
+    "tool_avg_duration_ms": 200,
+    "api_errors": 5,
+    "active_time_seconds": 1500
+  },
+  "rate_limits": {
+    "limit_id": "rl-001",
+    "primary_bucket": {
+      "capacity": 1000,
+      "remaining": 750
+    },
+    "secondary_bucket": {
+      "capacity": 5000,
+      "remaining": 4200
+    },
+    "credits": 100.0
+  },
+  "max_agents": 5,
+  "fleet_status": "running",
+  "fleet_paused_until": null,
+  "fleet_pause_reason": null
+}
