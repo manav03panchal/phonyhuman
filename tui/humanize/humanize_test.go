@@ -282,6 +282,32 @@ func TestAgentMessage_Truncation(t *testing.T) {
 	}
 }
 
+func TestTruncate_UTF8(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		max   int
+		want  string
+	}{
+		{"emoji within limit", "Hi 🎉🎉", 10, "Hi 🎉🎉"},
+		{"emoji truncated", "Hello 🌍🌍🌍", 8, "Hello 🌍🌍..."},
+		{"CJK truncated", "中文字符测试内容很长", 5, "中文字符测..."},
+		{"CJK within limit", "中文", 5, "中文"},
+		{"mixed multi-byte", "abc🎉def中文", 6, "abc🎉de..."},
+		{"ascii unchanged", "hello", 10, "hello"},
+		{"exact rune boundary", "🎉🎉🎉", 3, "🎉🎉🎉"},
+		{"one over rune boundary", "🎉🎉🎉🎉", 3, "🎉🎉🎉..."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncate(tt.input, tt.max)
+			if got != tt.want {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatCount(t *testing.T) {
 	tests := []struct {
 		n    int

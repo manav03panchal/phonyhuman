@@ -220,11 +220,12 @@ func formatTokens(tokens int) string {
 }
 
 func truncateStr(s string, max int) string {
-	if len(s) > max {
+	runes := []rune(s)
+	if len(runes) > max {
 		if max > 3 {
-			return s[:max-3] + "..."
+			return string(runes[:max-3]) + "..."
 		}
-		return s[:max]
+		return string(runes[:max])
 	}
 	return s
 }
