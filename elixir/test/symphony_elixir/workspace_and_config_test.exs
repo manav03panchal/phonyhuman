@@ -523,14 +523,83 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
   end
 
-  test "workspace remove returns error information for missing directory" do
-    random_path =
+  test "workspace remove returns ok for valid missing directory under workspace root" do
+    workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-missing-#{System.unique_integer([:positive])}"
+        "symphony-elixir-remove-missing-#{System.unique_integer([:positive])}"
       )
 
-    assert {:ok, []} = Workspace.remove(random_path)
+    try do
+      File.mkdir_p!(workspace_root)
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      missing_path = Path.join(workspace_root, "nonexistent-workspace")
+      assert {:ok, []} = Workspace.remove(missing_path)
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace remove rejects nil path" do
+    assert {:error, :invalid_path, ""} = Workspace.remove(nil)
+  end
+
+  test "workspace remove rejects empty string path" do
+    assert {:error, :invalid_path, ""} = Workspace.remove("")
+  end
+
+  test "workspace remove rejects path outside workspace root" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-remove-outside-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      outside_dir =
+        Path.join(
+          System.tmp_dir!(),
+          "symphony-elixir-remove-outside-target-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(workspace_root)
+      File.mkdir_p!(outside_dir)
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      assert {:error, {:workspace_outside_root, _, _}, ""} = Workspace.remove(outside_dir)
+      assert File.dir?(outside_dir)
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace remove rejects symlink escaping workspace root" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-remove-symlink-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      outside_dir = Path.join(test_root, "outside")
+      symlink_path = Path.join(workspace_root, "escape-link")
+
+      File.mkdir_p!(workspace_root)
+      File.mkdir_p!(outside_dir)
+      File.ln_s!(outside_dir, symlink_path)
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      assert {:error, {:workspace_symlink_escape, ^symlink_path, ^workspace_root}, ""} =
+               Workspace.remove(symlink_path)
+
+      assert File.exists?(outside_dir)
+    after
+      File.rm_rf(test_root)
+    end
   end
 
   test "workspace hooks support multiline YAML scripts and run at lifecycle boundaries" do
