@@ -1,7 +1,7 @@
 import Config
 
 host = System.get_env("HOST", "localhost")
-port = String.to_integer(System.get_env("PORT", "4000"))
+port = SymphonyElixir.RuntimeConfig.parse_port()
 
 config :symphony_elixir, SymphonyElixirWeb.Endpoint,
   url: [host: host, port: port],
