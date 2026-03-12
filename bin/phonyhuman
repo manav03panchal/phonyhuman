@@ -1023,10 +1023,16 @@ cmd_run() {
         die "Fill these in: $config_file"
     fi
 
-    # Extract exports
+    # Extract exports (whitelist: only LINEAR_API_KEY and SOURCE_REPO_URL)
     while IFS= read -r line; do
         if [[ "$line" == EXPORT:* ]]; then
-            export "${line#EXPORT:}"
+            local kv="${line#EXPORT:}"
+            local var_name="${kv%%=*}"
+            if [[ "$var_name" == "LINEAR_API_KEY" || "$var_name" == "SOURCE_REPO_URL" ]]; then
+                export "$kv"
+            else
+                yellow "  WARNING: Ignoring unexpected export variable: $var_name"; echo "" >&2
+            fi
         fi
     done <<< "$output"
 
