@@ -3,6 +3,7 @@ defmodule SymphonyElixir.CLI do
   Escript entrypoint for running Symphony with an explicit WORKFLOW.md path.
   """
 
+  require Logger
   alias SymphonyElixir.LogFile
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
@@ -107,7 +108,9 @@ defmodule SymphonyElixir.CLI do
         nil
     end
   rescue
-    _ -> nil
+    e in [ErlangError] ->
+      Logger.warning("detect_stale_pid failed for port #{port}: #{inspect(e)}")
+      nil
   end
 
   @spec usage_message() :: String.t()

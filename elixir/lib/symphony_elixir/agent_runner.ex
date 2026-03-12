@@ -46,7 +46,16 @@ defmodule SymphonyElixir.AgentRunner do
     :ok
   end
 
-  defp send_agent_update(_recipient, _issue, _message), do: :ok
+  defp send_agent_update(nil, %Issue{identifier: identifier}, _message) do
+    Logger.warning("Dropping agent update for #{identifier}: no recipient configured")
+    :ok
+  end
+
+  defp send_agent_update(recipient, issue, message) do
+    Logger.warning("Unexpected send_agent_update args: recipient=#{inspect(recipient)} issue=#{inspect(issue)} message=#{inspect(message)}")
+
+    :ok
+  end
 
   defp run_agent_turns(workspace, issue, agent_update_recipient, opts) do
     max_turns = Keyword.get(opts, :max_turns, Config.agent_max_turns())
