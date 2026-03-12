@@ -2,85 +2,112 @@ package view
 
 import "github.com/charmbracelet/lipgloss"
 
-// Color palette — inspired by btop/lazygit aesthetic.
+// k9s-inspired color palette — neon on dark.
 var (
-	colorPurple    = lipgloss.Color("#7C3AED")
-	colorViolet    = lipgloss.Color("#8B5CF6")
-	colorCyan      = lipgloss.Color("#06B6D4")
-	colorGreen     = lipgloss.Color("#10B981")
-	colorYellow    = lipgloss.Color("#F59E0B")
-	colorOrange    = lipgloss.Color("#F97316")
-	colorRed       = lipgloss.Color("#EF4444")
-	colorWhite     = lipgloss.Color("#F8FAFC")
-	colorGray      = lipgloss.Color("#94A3B8")
-	colorDimGray   = lipgloss.Color("#64748B")
-	colorDarkGray  = lipgloss.Color("#334155")
-	colorBorderDim = lipgloss.Color("#475569")
+	colorLogo     = lipgloss.Color("#FFCC00") // k9s yellow
+	colorCrumb    = lipgloss.Color("#00BFFF") // bright cyan
+	colorHeader   = lipgloss.Color("#444444") // table header bg
+	colorHdrText  = lipgloss.Color("#AAAAAA") // table header fg
+	colorCyan     = lipgloss.Color("#00E5FF")
+	colorGreen    = lipgloss.Color("#00E676")
+	colorYellow   = lipgloss.Color("#FFD600")
+	colorOrange   = lipgloss.Color("#FF9100")
+	colorRed      = lipgloss.Color("#FF1744")
+	colorWhite    = lipgloss.Color("#E0E0E0")
+	colorDim      = lipgloss.Color("#666666")
+	colorDimmer   = lipgloss.Color("#444444")
+	colorRowEven  = lipgloss.Color("#1A1A2E") // subtle alternating
+	colorRowOdd   = lipgloss.Color("#16213E")
+	colorSelected = lipgloss.Color("#1E88E5")
 )
 
-// Panel border style.
-var panelBorder = lipgloss.NewStyle().
-	Border(lipgloss.RoundedBorder()).
-	BorderForeground(colorBorderDim).
-	Padding(0, 1)
-
-// Header banner styles.
-var bannerStyle = lipgloss.NewStyle().
+// Logo and breadcrumb.
+var logoStyle = lipgloss.NewStyle().
 	Bold(true).
-	Foreground(colorWhite).
-	Background(colorPurple).
-	Padding(0, 2).
-	Align(lipgloss.Center)
+	Foreground(colorLogo)
 
-var bannerBorder = lipgloss.NewStyle().
-	Border(lipgloss.DoubleBorder()).
-	BorderForeground(colorViolet).
-	Padding(0, 1).
-	Align(lipgloss.Center)
-
-// Metric label style.
-var labelStyle = lipgloss.NewStyle().
-	Foreground(colorGray).
+var crumbStyle = lipgloss.NewStyle().
+	Foreground(colorCrumb).
 	Bold(true)
 
-// Metric value style.
-var valueStyle = lipgloss.NewStyle().
+var crumbSep = lipgloss.NewStyle().
+	Foreground(colorDim)
+
+// Metrics bar styles.
+var metricLabel = lipgloss.NewStyle().
+	Foreground(colorDim)
+
+var metricVal = lipgloss.NewStyle().
+	Foreground(colorCyan).
+	Bold(true)
+
+var metricValGreen = lipgloss.NewStyle().
+	Foreground(colorGreen).
+	Bold(true)
+
+var metricValYellow = lipgloss.NewStyle().
+	Foreground(colorYellow).
+	Bold(true)
+
+var metricValRed = lipgloss.NewStyle().
+	Foreground(colorRed).
+	Bold(true)
+
+// Table styles.
+var tableHdrStyle = lipgloss.NewStyle().
+	Foreground(colorHdrText).
+	Background(colorHeader).
+	Bold(true)
+
+var cellStyle = lipgloss.NewStyle().
 	Foreground(colorWhite)
 
-var valueHighlight = lipgloss.NewStyle().
-	Foreground(colorCyan).
+var cellDim = lipgloss.NewStyle().
+	Foreground(colorDim)
+
+// Footer key hints.
+var footerKey = lipgloss.NewStyle().
+	Foreground(colorLogo).
 	Bold(true)
 
-var valueGreen = lipgloss.NewStyle().
-	Foreground(colorGreen)
+var footerDesc = lipgloss.NewStyle().
+	Foreground(colorDim)
 
-var valueYellow = lipgloss.NewStyle().
-	Foreground(colorYellow)
+var footerSep = lipgloss.NewStyle().
+	Foreground(colorDimmer)
 
-var valueRed = lipgloss.NewStyle().
-	Foreground(colorRed)
-
-var valueDim = lipgloss.NewStyle().
-	Foreground(colorDimGray)
-
-// Footer styles.
-var footerStyle = lipgloss.NewStyle().
-	Foreground(colorDimGray).
-	Align(lipgloss.Center)
-
-var footerKeyStyle = lipgloss.NewStyle().
-	Foreground(colorCyan).
-	Bold(true)
-
-var footerDescStyle = lipgloss.NewStyle().
-	Foreground(colorGray)
-
-// Section title style.
-var sectionTitle = lipgloss.NewStyle().
-	Foreground(colorViolet).
+// Status badge styles.
+var badgeRunning = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#000")).
+	Background(colorGreen).
 	Bold(true).
-	PaddingBottom(0)
+	Padding(0, 1)
 
-// Sparkline colors.
+var badgePaused = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#000")).
+	Background(colorOrange).
+	Bold(true).
+	Padding(0, 1)
+
+// Prompt.
+var promptStyle = lipgloss.NewStyle().
+	Foreground(colorYellow).
+	Bold(true)
+
+// Sparkline.
 var sparkStyle = lipgloss.NewStyle().
 	Foreground(colorCyan)
+
+// Section title (used for backoff queue).
+var sectionTitle = lipgloss.NewStyle().
+	Foreground(colorCrumb).
+	Bold(true)
+
+// Retry row styles.
+var (
+	retryIdentifierStyle = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
+	retryAttemptStyle    = lipgloss.NewStyle().Foreground(colorYellow)
+	retryCountdownStyle  = lipgloss.NewStyle().Foreground(colorCyan)
+	retryErrorStyle      = lipgloss.NewStyle().Foreground(colorDim)
+	promptLabelStyle     = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+)

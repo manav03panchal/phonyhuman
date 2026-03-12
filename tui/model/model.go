@@ -55,6 +55,7 @@ type Model struct {
 	metrics types.AgentMetrics
 	limits  []types.RateLimit
 	project types.ProjectInfo
+	agents  []types.Agent
 
 	// Lifecycle context — cancelled on model teardown to stop SSE/poll goroutines.
 	ctx    context.Context
@@ -149,6 +150,7 @@ func (m Model) View() string {
 		Project:      m.project,
 		State:        m.state,
 		StateAt:      m.stateAt,
+		Agents:       m.agents,
 		PromptPause:  m.prompt == promptConfirmPause,
 		PromptResume: m.prompt == promptConfirmResume,
 	})
@@ -211,27 +213,41 @@ func (m *Model) syncMetrics() {
 		m.metrics.MaxAgents = s.MaxAgents
 	}
 
-	// Token metrics
-	m.metrics.InputTokens = int64(t.InputTokens)
-	m.metrics.OutputTokens = int64(t.OutputTokens)
-	m.metrics.CacheReadTokens = int64(t.CacheReadTokens)
-	m.metrics.TotalTokens = int64(t.TotalTokens)
-	m.metrics.CacheHitRate = t.CacheHitRate
-	m.metrics.CostUSD = t.CostUSD
-	if t.Model != nil {
-		m.metrics.Model = *t.Model
+	// Token metrics — only show when agents are active
+	if s.Counts.Running > 0 {
+		m.metrics.InputTokens = int64(t.InputTokens)
+		m.metrics.OutputTokens = int64(t.OutputTokens)
+		m.metrics.CacheReadTokens = int64(t.CacheReadTokens)
+		m.metrics.TotalTokens = int64(t.TotalTokens)
+		m.metrics.CacheHitRate = t.CacheHitRate
+		m.metrics.CostUSD = t.CostUSD
+		if t.Model != nil {
+			m.metrics.Model = *t.Model
+		} else {
+			m.metrics.Model = ""
+		}
+	} else {
+		m.metrics.InputTokens = 0
+		m.metrics.OutputTokens = 0
+		m.metrics.CacheReadTokens = 0
+		m.metrics.TotalTokens = 0
+		m.metrics.CacheHitRate = 0
+		m.metrics.CostUSD = 0
+		m.metrics.Model = ""
 	}
 
 	// Runtime & TPS
 	m.metrics.RuntimeSeconds = t.SecondsRunning
-	if t.SecondsRunning > 0 {
+	if s.Counts.Running > 0 && t.SecondsRunning > 0 {
 		tps := float64(t.TotalTokens) / float64(t.SecondsRunning)
 		m.metrics.TPS = tps
-		// Append to sparkline history (keep last 24 points)
 		m.metrics.TPSHistory = append(m.metrics.TPSHistory, tps)
 		if len(m.metrics.TPSHistory) > 24 {
 			m.metrics.TPSHistory = m.metrics.TPSHistory[len(m.metrics.TPSHistory)-24:]
 		}
+	} else {
+		m.metrics.TPS = 0
+		m.metrics.TPSHistory = nil
 	}
 
 	// Code stats
@@ -262,6 +278,33 @@ func (m *Model) syncMetrics() {
 				Limit: rl.SecondaryBucket.Capacity,
 			})
 		}
+	}
+
+	// Per-agent display models
+	m.agents = m.agents[:0]
+	for _, e := range s.Running {
+		started := time.Time{}
+		if e.StartedAt != nil {
+			if t, err := time.Parse(time.RFC3339, *e.StartedAt); err == nil {
+				started = t
+			}
+		}
+		status := types.StatusActive
+		if e.State == "error" {
+			status = types.StatusError
+		}
+		m.agents = append(m.agents, types.Agent{
+			ID:           e.IssueIdentifier,
+			Stage:        e.State,
+			StartedAt:    started,
+			Turn:         e.TurnCount,
+			Tokens:       e.Tokens.TotalTokens,
+			InputTokens:  e.Tokens.InputTokens,
+			OutputTokens: e.Tokens.OutputTokens,
+			CostUSD:      e.Tokens.CostUSD,
+			SessionID:    e.SessionID,
+			Status:       status,
+		})
 	}
 }
 

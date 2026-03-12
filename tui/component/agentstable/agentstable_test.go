@@ -275,7 +275,7 @@ func TestHumanizedEventInRow(t *testing.T) {
 		},
 	}
 	row := agentRow(a)
-	lastEvent := row[6]
+	lastEvent := row[7]
 	if lastEvent != "turn cancelled" {
 		t.Errorf("expected humanized event 'turn cancelled', got %q", lastEvent)
 	}

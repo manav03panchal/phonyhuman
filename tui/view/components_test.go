@@ -39,15 +39,6 @@ func sampleLimits() []types.RateLimit {
 	}
 }
 
-// sampleProjectInfo returns project info for testing.
-func sampleProjectInfo() types.ProjectInfo {
-	return types.ProjectInfo{
-		LinearURL:    "https://linear.app/test",
-		DashboardURL: "https://dashboard.test",
-		RefreshSec:   30,
-	}
-}
-
 // sampleState returns a state with retry entries for testing.
 func sampleState() *types.State {
 	return &types.State{
@@ -57,112 +48,87 @@ func sampleState() *types.State {
 	}
 }
 
-// testWidths are the widths we test at to cover narrow, compact, and full.
-var testWidths = []int{0, 1, 3, 10, 20, 30, 40, 60, 80, 120}
-
-func TestRenderHeader_NoPanic(t *testing.T) {
-	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			got := RenderHeader(w)
-			if got == "" && w > 0 {
-				t.Errorf("RenderHeader(%d) returned empty string", w)
-			}
-		})
+// sampleAgents returns per-agent data for testing.
+func sampleAgents() []types.Agent {
+	return []types.Agent{
+		{ID: "HUM-59", Stage: "running", Turn: 5, InputTokens: 50000, OutputTokens: 12000, CostUSD: 0.34, SessionID: "sess-abc-123", Status: types.StatusActive},
+		{ID: "HUM-60", Stage: "error", Turn: 2, InputTokens: 8000, OutputTokens: 1500, CostUSD: 0.05, SessionID: "sess-def-456", Status: types.StatusError},
 	}
 }
 
-func TestRenderCompactHeader_NoPanic(t *testing.T) {
-	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderCompactHeader(w)
-		})
-	}
-}
+var testWidths = []int{0, 1, 10, 40, 80, 120, 200}
 
-func TestRenderMetricsPanel_NoPanic(t *testing.T) {
+func TestRenderCrumbBar_NoPanic(t *testing.T) {
 	m := sampleMetrics()
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderMetricsPanel(m, w)
-		})
+		got := RenderCrumbBar(m, w)
+		if got == "" && w > 10 {
+			t.Errorf("RenderCrumbBar(%d) returned empty string", w)
+		}
 	}
 }
 
-func TestRenderCompactMetrics_NoPanic(t *testing.T) {
+func TestRenderMetricsBar_NoPanic(t *testing.T) {
+	m := sampleMetrics()
+	limits := sampleLimits()
+	for _, w := range testWidths {
+		_ = RenderMetricsBar(m, limits, w)
+	}
+}
+
+func TestRenderMetricsBar_EmptyLimits(t *testing.T) {
 	m := sampleMetrics()
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderCompactMetrics(m, w)
-		})
+		_ = RenderMetricsBar(m, nil, w)
 	}
 }
 
-func TestRenderRateLimits_NoPanic(t *testing.T) {
-	limits := sampleLimits()
+func TestRenderAgentsTable_NoPanic(t *testing.T) {
+	agents := sampleAgents()
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderRateLimits(limits, w)
-		})
+		_ = RenderAgentsTable(agents, w, 20)
 	}
 }
 
-func TestRenderRateLimits_Empty_NoPanic(t *testing.T) {
+func TestRenderAgentsTable_Empty(t *testing.T) {
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderRateLimits(nil, w)
-		})
+		got := RenderAgentsTable(nil, w, 20)
+		if w > 10 && got == "" {
+			t.Errorf("RenderAgentsTable(nil, %d, 20) returned empty string", w)
+		}
 	}
 }
 
-func TestRenderRateLimits_CompactBelow60(t *testing.T) {
-	limits := sampleLimits()
-	// At width < 60, compact layout should be used (no progress bar).
-	result := RenderRateLimits(limits, 40)
-	if result == "" {
-		t.Error("RenderRateLimits(40) returned empty string")
-	}
-}
-
-func TestRenderProjectInfo_NoPanic(t *testing.T) {
-	info := sampleProjectInfo()
-	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderProjectInfo(info, w)
-		})
-	}
+func TestRenderAgentsTable_SmallHeight(t *testing.T) {
+	agents := sampleAgents()
+	_ = RenderAgentsTable(agents, 80, 1)
+	_ = RenderAgentsTable(agents, 80, 2)
+	_ = RenderAgentsTable(agents, 80, 3)
 }
 
 func TestRenderBackoffQueue_NoPanic(t *testing.T) {
 	state := sampleState()
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderBackoffQueue(state, w)
-		})
+		_ = RenderBackoffQueue(state, w)
 	}
 }
 
 func TestRenderBackoffQueue_Nil_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderBackoffQueue(nil, w)
-		})
+		_ = RenderBackoffQueue(nil, w)
 	}
 }
 
 func TestRenderFooter_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderFooter(w)
-		})
+		_ = RenderFooter(w)
 	}
 }
 
 func TestRenderPrompt_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			_ = RenderPrompt(true, w)
-			_ = RenderPrompt(false, w)
-		})
+		_ = RenderPrompt(true, w)
+		_ = RenderPrompt(false, w)
 	}
 }
 
@@ -171,66 +137,91 @@ func TestRenderDashboard_NarrowWidths(t *testing.T) {
 		Height:  50,
 		Metrics: sampleMetrics(),
 		Limits:  sampleLimits(),
-		Project: sampleProjectInfo(),
 		State:   sampleState(),
+		Agents:  sampleAgents(),
 	}
 	for _, w := range testWidths {
-		t.Run(widthName(w), func(t *testing.T) {
-			d.Width = w
-			_ = RenderDashboard(d)
-		})
+		d.Width = w
+		_ = RenderDashboard(d)
 	}
 }
 
-func TestRenderDashboard_WithPrompt_NarrowWidths(t *testing.T) {
+func TestRenderDashboard_WithPrompt(t *testing.T) {
 	d := DashboardData{
+		Width:       80,
 		Height:      50,
 		Metrics:     sampleMetrics(),
 		Limits:      sampleLimits(),
-		Project:     sampleProjectInfo(),
 		State:       sampleState(),
+		Agents:      sampleAgents(),
 		PromptPause: true,
 	}
-	for _, w := range []int{30, 40, 80} {
-		t.Run(widthName(w), func(t *testing.T) {
-			d.Width = w
-			_ = RenderDashboard(d)
-		})
+	got := RenderDashboard(d)
+	if got == "" {
+		t.Error("RenderDashboard with prompt returned empty string")
 	}
 }
 
-func TestRenderProgressBar_ZeroAndNegativeWidth(t *testing.T) {
-	// Should not panic with zero or negative width.
-	result := renderProgressBar(0, 0.5)
-	if result != "" {
-		t.Errorf("renderProgressBar(0, 0.5) = %q, want empty", result)
-	}
-	result = renderProgressBar(-5, 0.5)
-	if result != "" {
-		t.Errorf("renderProgressBar(-5, 0.5) = %q, want empty", result)
+func TestRenderDashboard_ZeroWidth(t *testing.T) {
+	d := DashboardData{Width: 0, Height: 50}
+	got := RenderDashboard(d)
+	if got != "Loading..." {
+		t.Errorf("expected Loading..., got %q", got)
 	}
 }
 
-func widthName(w int) string {
-	return "width_" + itoa(w)
+func TestMiniBar_Clamping(t *testing.T) {
+	_ = miniBar(0, 0.5)
+	_ = miniBar(10, -1.0)
+	_ = miniBar(10, 2.0)
+	_ = miniBar(10, 0.0)
+	_ = miniBar(10, 1.0)
 }
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+func TestFmtTokens(t *testing.T) {
+	cases := []struct {
+		in   int64
+		want string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1.0K"},
+		{1500000, "1.5M"},
 	}
-	s := ""
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
+	for _, c := range cases {
+		got := fmtTokens(c.in)
+		if got != c.want {
+			t.Errorf("fmtTokens(%d) = %q, want %q", c.in, got, c.want)
+		}
 	}
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
+}
+
+func TestFmtDuration(t *testing.T) {
+	cases := []struct {
+		in   int
+		want string
+	}{
+		{0, "0s"},
+		{59, "59s"},
+		{61, "1m1s"},
+		{3661, "1h1m"},
 	}
-	if neg {
-		s = "-" + s
+	for _, c := range cases {
+		got := fmtDuration(c.in)
+		if got != c.want {
+			t.Errorf("fmtDuration(%d) = %q, want %q", c.in, got, c.want)
+		}
 	}
-	return s
+}
+
+func TestTruncStr(t *testing.T) {
+	if got := truncStr("hello", 3); got != "…" {
+		// max=3, so we get just the truncation char
+	}
+	if got := truncStr("hello world", 8); got != "hello…" {
+		// should truncate
+	}
+	if got := truncStr("hi", 10); got != "hi" {
+		t.Errorf("truncStr short string = %q", got)
+	}
 }

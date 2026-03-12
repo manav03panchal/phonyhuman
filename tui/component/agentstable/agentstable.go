@@ -20,12 +20,13 @@ import (
 // Default column widths.
 const (
 	colWidthID      = 18
-	colWidthStage   = 14
-	colWidthPID     = 10
-	colWidthAgeTurn = 12
-	colWidthTokens  = 10
+	colWidthStage   = 10
+	colWidthAgeTurn = 10
+	colWidthIn      = 10
+	colWidthOut     = 10
+	colWidthCost    = 9
 	colWidthSession = 14
-	colWidthEvent   = 40
+	colWidthEvent   = 30
 )
 
 var (
@@ -140,10 +141,11 @@ func (m *Model) Blur() {
 func columns() []table.Column {
 	return []table.Column{
 		{Title: "ID", Width: colWidthID},
-		{Title: "Stage", Width: colWidthStage},
-		{Title: "PID", Width: colWidthPID},
+		{Title: "State", Width: colWidthStage},
 		{Title: "Age/Turn", Width: colWidthAgeTurn},
-		{Title: "Tokens", Width: colWidthTokens},
+		{Title: "In", Width: colWidthIn},
+		{Title: "Out", Width: colWidthOut},
+		{Title: "Cost", Width: colWidthCost},
 		{Title: "Session", Width: colWidthSession},
 		{Title: "Last Event", Width: colWidthEvent},
 	}
@@ -171,19 +173,29 @@ func agentRow(a types.Agent) table.Row {
 	dot := statusDot(a.Status)
 	age := formatAge(a.StartedAt)
 	ageTurn := fmt.Sprintf("%s/T%d", age, a.Turn)
-	tokens := formatTokens(a.Tokens)
 	session := truncateStr(a.SessionID, colWidthSession)
 	event := humanize.AgentMessage(a.LastEvent)
 
 	return table.Row{
 		dot + " " + truncateStr(a.ID, colWidthID-3),
 		a.Stage,
-		a.PID,
 		ageTurn,
-		tokens,
+		formatTokens(a.InputTokens),
+		formatTokens(a.OutputTokens),
+		formatCost(a.CostUSD),
 		session,
 		event,
 	}
+}
+
+func formatCost(cost float64) string {
+	if cost == 0 {
+		return "—"
+	}
+	if cost < 0.01 {
+		return "<$0.01"
+	}
+	return fmt.Sprintf("$%.2f", cost)
 }
 
 func statusDot(status types.AgentStatus) string {

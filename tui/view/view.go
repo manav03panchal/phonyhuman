@@ -17,62 +17,68 @@ type DashboardData struct {
 	Project      types.ProjectInfo
 	State        *types.State
 	StateAt      time.Time
+	Agents       []types.Agent
 	PromptPause  bool
 	PromptResume bool
 }
 
-// RenderDashboard returns the full dashboard view string.
+// RenderDashboard returns the full k9s-style dashboard view.
 func RenderDashboard(d DashboardData) string {
 	if d.Width == 0 {
 		return "Loading..."
 	}
 
-	compact := d.Width < 80
+	w := d.Width
 
-	var sections []string
+	// Line 1: logo + breadcrumb
+	header := RenderCrumbBar(d.Metrics, w)
 
-	// Header
-	if compact {
-		sections = append(sections, RenderCompactHeader(d.Width))
-	} else {
-		sections = append(sections, RenderHeader(d.Width))
-	}
+	// Line 2: compact metrics bar
+	metrics := RenderMetricsBar(d.Metrics, d.Limits, w)
 
-	sections = append(sections, "")
+	// Footer (bottom line)
+	footer := RenderFooter(w)
 
-	// Metrics panel
-	if compact {
-		sections = append(sections, RenderCompactMetrics(d.Metrics, d.Width))
-	} else {
-		sections = append(sections, RenderMetricsPanel(d.Metrics, d.Width))
-	}
-
-	sections = append(sections, "")
-
-	// Rate limits
-	sections = append(sections, RenderRateLimits(d.Limits, d.Width))
-
-	sections = append(sections, "")
-
-	// Backoff queue panel
-	sections = append(sections, RenderBackoffQueue(d.State, d.Width))
-
-	sections = append(sections, "")
-
-	// Project info
-	sections = append(sections, RenderProjectInfo(d.Project, d.Width))
-
-	sections = append(sections, "")
-
-	// Prompt (if active)
+	// Prompt overlay (if active)
+	promptLine := ""
 	if d.PromptPause || d.PromptResume {
-		sections = append(sections, RenderPrompt(d.PromptPause, d.Width))
-		sections = append(sections, "")
+		promptLine = RenderPrompt(d.PromptPause, w)
 	}
 
-	// Footer
-	sections = append(sections, RenderFooter(d.Width))
+	// Calculate remaining height for the table
+	usedLines := 4 // header + metrics + blank + footer
+	if promptLine != "" {
+		usedLines++
+	}
+
+	// Backoff queue (only if entries exist)
+	backoff := ""
+	if d.State != nil && len(d.State.Retrying) > 0 {
+		backoff = RenderBackoffQueue(d.State, w)
+		usedLines += lipgloss.Height(backoff) + 1
+	}
+
+	tableHeight := d.Height - usedLines
+	if tableHeight < 3 {
+		tableHeight = 3
+	}
+
+	// Main content: agents table fills remaining space
+	table := RenderAgentsTable(d.Agents, w, tableHeight)
+
+	// Assemble
+	var sections []string
+	sections = append(sections, header)
+	sections = append(sections, metrics)
+	sections = append(sections, table)
+	if backoff != "" {
+		sections = append(sections, backoff)
+	}
+	if promptLine != "" {
+		sections = append(sections, promptLine)
+	}
+	sections = append(sections, footer)
 
 	page := lipgloss.JoinVertical(lipgloss.Left, sections...)
-	return lipgloss.NewStyle().MaxWidth(d.Width).MaxHeight(d.Height).Render(page)
+	return lipgloss.NewStyle().MaxWidth(w).MaxHeight(d.Height).Render(page)
 }
