@@ -316,9 +316,10 @@ cmd_doctor() {
     local ok=true
 
     check() {
-        local label="$1" cmd="$2" hint="$3"
+        local label="$1" hint="$2"
+        shift 2
         printf "  %-20s" "$label"
-        if eval "$cmd" &>/dev/null; then
+        if "$@" &>/dev/null; then
             green "OK"; echo ""
         else
             red "MISSING"; echo ""
@@ -328,10 +329,11 @@ cmd_doctor() {
     }
 
     check_version() {
-        local label="$1" cmd="$2" hint="$3"
+        local label="$1" hint="$2"
+        shift 2
         printf "  %-20s" "$label"
         local ver
-        ver=$(eval "$cmd" 2>/dev/null || echo "")
+        ver=$("$@" 2>/dev/null || echo "")
         if [[ -n "$ver" ]]; then
             green "$ver"; echo ""
         else
@@ -341,28 +343,41 @@ cmd_doctor() {
         fi
     }
 
+    _get_erlang_version() {
+        erl -eval 'io:format("OTP ~s", [erlang:system_info(otp_release)]), halt().' -noshell 2>/dev/null \
+            || { find_erlang && erl -eval 'io:format("OTP ~s", [erlang:system_info(otp_release)]), halt().' -noshell; }
+    }
+
+    _get_python_version() {
+        python3 --version | head -1
+    }
+
+    _get_claude_version() {
+        claude --version 2>/dev/null | head -1
+    }
+
     echo "  $(bold "Checking prerequisites...")"
     echo ""
 
     check_version "Erlang/OTP" \
-        "erl -eval 'io:format(\"OTP ~s\", [erlang:system_info(otp_release)]), halt().' -noshell 2>/dev/null || find_erlang && erl -eval 'io:format(\"OTP ~s\", [erlang:system_info(otp_release)]), halt().' -noshell" \
-        "Install: mise install erlang@28"
+        "Install: mise install erlang@28" \
+        _get_erlang_version
 
     check_version "Python" \
-        "python3 --version | head -1" \
-        "Install Python 3.11+: https://python.org"
+        "Install Python 3.11+: https://python.org" \
+        _get_python_version
 
     check_version "Claude CLI" \
-        "claude --version 2>/dev/null | head -1" \
-        "Install: https://docs.anthropic.com/en/docs/claude-code"
+        "Install: https://docs.anthropic.com/en/docs/claude-code" \
+        _get_claude_version
 
     check "Git" \
-        "command -v git" \
-        "Install git: https://git-scm.com"
+        "Install git: https://git-scm.com" \
+        command -v git
 
     check "curl" \
-        "command -v curl" \
-        "Install curl"
+        "Install curl" \
+        command -v curl
 
     # gh is recommended (not required) for the PR workflow
     printf "  %-20s" "GitHub CLI (gh)"
