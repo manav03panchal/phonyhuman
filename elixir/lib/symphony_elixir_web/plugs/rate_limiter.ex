@@ -55,17 +55,9 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter do
   end
 
   defp ensure_table do
-    case :ets.whereis(@table) do
-      :undefined ->
-        try do
-          :ets.new(@table, [:public, :set, :named_table, {:write_concurrency, true}])
-        catch
-          :error, :badarg -> :ok
-        end
-
-      _ref ->
-        :ok
-    end
+    :ets.new(@table, [:public, :set, :named_table, {:write_concurrency, true}])
+  rescue
+    ArgumentError -> :ok
   end
 
   defp client_ip(conn) do
