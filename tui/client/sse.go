@@ -22,6 +22,9 @@ const (
 	backoffFactor = 2.0
 	// eventsPath is the SSE endpoint path.
 	eventsPath = "/api/v1/events"
+	// sseIdleTimeout is the maximum duration without receiving any data before
+	// the SSE connection is considered dead and a reconnect is triggered.
+	sseIdleTimeout = 45 * time.Second
 )
 
 // SSEEvent represents a parsed Server-Sent Event.
@@ -32,11 +35,12 @@ type SSEEvent struct {
 
 // SSESubscription manages an SSE connection with auto-reconnect.
 type SSESubscription struct {
-	url        string
-	httpClient *http.Client
-	events     chan SSEEvent
-	ctx        context.Context
-	cancel     context.CancelFunc
+	url         string
+	httpClient  *http.Client
+	events      chan SSEEvent
+	ctx         context.Context
+	cancel      context.CancelFunc
+	idleTimeout time.Duration
 }
 
 // SubscribeSSE connects to the SSE endpoint and returns a subscription.
@@ -47,13 +51,12 @@ type SSESubscription struct {
 func (c *Client) SubscribeSSE(ctx context.Context) *SSESubscription {
 	ctx, cancel := context.WithCancel(ctx)
 	sub := &SSESubscription{
-		url: c.baseURL + eventsPath,
-		httpClient: &http.Client{
-			// No timeout — SSE connections are long-lived.
-		},
-		events: make(chan SSEEvent, 16),
-		ctx:    ctx,
-		cancel: cancel,
+		url:         c.baseURL + eventsPath,
+		httpClient:  &http.Client{},
+		events:      make(chan SSEEvent, 16),
+		ctx:         ctx,
+		cancel:      cancel,
+		idleTimeout: sseIdleTimeout,
 	}
 	go sub.loop()
 	return sub
@@ -106,9 +109,12 @@ func (s *SSESubscription) loop() {
 var errEndpointNotFound = fmt.Errorf("SSE endpoint returned 404")
 
 // connect performs a single SSE connection and reads events until
-// the connection drops or the context is cancelled.
+// the connection drops, the context is cancelled, or the idle timeout fires.
 func (s *SSESubscription) connect() error {
-	req, err := http.NewRequestWithContext(s.ctx, http.MethodGet, s.url, nil)
+	connCtx, connCancel := context.WithCancel(s.ctx)
+	defer connCancel()
+
+	req, err := http.NewRequestWithContext(connCtx, http.MethodGet, s.url, nil)
 	if err != nil {
 		return fmt.Errorf("create SSE request: %w", err)
 	}
@@ -128,14 +134,36 @@ func (s *SSESubscription) connect() error {
 		return fmt.Errorf("SSE unexpected status: %d", resp.StatusCode)
 	}
 
+	// Start idle timer after connection is established.
+	// If no data arrives within the idle timeout the connection is considered
+	// dead and connCtx is cancelled, which interrupts the scanner read.
+	idleTimer := time.NewTimer(s.idleTimeout)
+	defer idleTimer.Stop()
+	go func() {
+		select {
+		case <-idleTimer.C:
+			connCancel()
+		case <-connCtx.Done():
+		}
+	}()
+
 	scanner := bufio.NewScanner(resp.Body)
 	var eventType string
 	var dataLines []string
 
 	for scanner.Scan() {
-		if s.ctx.Err() != nil {
-			return s.ctx.Err()
+		if connCtx.Err() != nil {
+			return connCtx.Err()
 		}
+
+		// Reset idle timer on any received data.
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(s.idleTimeout)
 
 		line := scanner.Text()
 
@@ -147,8 +175,8 @@ func (s *SSESubscription) connect() error {
 				}
 				select {
 				case s.events <- event:
-				case <-s.ctx.Done():
-					return s.ctx.Err()
+				case <-connCtx.Done():
+					return connCtx.Err()
 				}
 			}
 			eventType = ""
