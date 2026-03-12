@@ -8,7 +8,7 @@ defmodule SymphonyElixirWeb.Endpoint do
   @session_options [
     store: :cookie,
     key: "_symphony_elixir_key",
-    signing_salt: "symphony-session"
+    signing_salt: :crypto.strong_rand_bytes(32) |> Base.encode64()
   ]
 
   socket("/live", Phoenix.LiveView.Socket,

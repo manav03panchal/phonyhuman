@@ -44,6 +44,11 @@ defmodule SymphonyElixir.RuntimeConfig do
     end
   end
 
+  @spec signing_salt(String.t()) :: String.t()
+  def signing_salt(env_var) do
+    System.get_env(env_var) || :crypto.strong_rand_bytes(32) |> Base.encode64()
+  end
+
   @spec check_origin() :: boolean() | [String.t()]
   def check_origin do
     case System.get_env("ALLOWED_ORIGINS") do
