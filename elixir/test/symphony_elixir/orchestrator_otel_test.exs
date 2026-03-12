@@ -50,7 +50,9 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
       otel_cache_read_tokens: 0,
       otel_cache_creation_tokens: 0,
       otel_cost_usd: 0.0,
-      otel_tool_executions: [],
+      otel_tool_calls: 0,
+      otel_tool_duration_total_ms: 0,
+      otel_tool_errors: 0,
       otel_api_errors: 0,
       otel_lines_changed: 0,
       otel_commits_count: 0,
@@ -130,16 +132,10 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     assert entry.otel_prs_count == 1
     assert entry.otel_active_time_seconds == 120
 
-    # Tool executions
-    assert length(entry.otel_tool_executions) == 2
-
-    assert Enum.any?(entry.otel_tool_executions, fn t ->
-             t.name == "Read" and t.duration_ms == 150 and t.success == true
-           end)
-
-    assert Enum.any?(entry.otel_tool_executions, fn t ->
-             t.name == "Edit" and t.duration_ms == 300 and t.success == true
-           end)
+    # Tool execution aggregates
+    assert entry.otel_tool_calls == 2
+    assert entry.otel_tool_duration_total_ms == 450
+    assert entry.otel_tool_errors == 0
 
     # API errors
     assert entry.otel_api_errors == 1
@@ -227,9 +223,9 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
       otel_cache_read_tokens: 80,
       otel_cache_creation_tokens: 40,
       otel_cost_usd: 0.05,
-      otel_tool_executions: [
-        %{name: "Bash", duration_ms: 500, success: true}
-      ],
+      otel_tool_calls: 1,
+      otel_tool_duration_total_ms: 500,
+      otel_tool_errors: 0,
       otel_api_errors: 2,
       otel_lines_changed: 99,
       otel_commits_count: 4,
@@ -252,7 +248,9 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     assert entry.otel_cache_read_tokens == 80
     assert entry.otel_cache_creation_tokens == 40
     assert entry.otel_cost_usd == 0.05
-    assert entry.otel_tool_executions == [%{name: "Bash", duration_ms: 500, success: true}]
+    assert entry.otel_tool_calls == 1
+    assert entry.otel_tool_duration_total_ms == 500
+    assert entry.otel_tool_errors == 0
     assert entry.otel_api_errors == 2
     assert entry.otel_lines_changed == 99
     assert entry.otel_commits_count == 4
@@ -314,7 +312,9 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
       otel_cache_read_tokens: 0,
       otel_cache_creation_tokens: 0,
       otel_cost_usd: 0.0,
-      otel_tool_executions: [],
+      otel_tool_calls: 0,
+      otel_tool_duration_total_ms: 0,
+      otel_tool_errors: 0,
       otel_api_errors: 0,
       otel_lines_changed: 0,
       otel_commits_count: 0,
@@ -436,9 +436,9 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
       otel_cache_read_tokens: 0,
       otel_cache_creation_tokens: 0,
       otel_cost_usd: 0.05,
-      otel_tool_executions: [
-        %{name: "Bash", duration_ms: 500, success: true}
-      ],
+      otel_tool_calls: 1,
+      otel_tool_duration_total_ms: 500,
+      otel_tool_errors: 0,
       otel_api_errors: 2,
       otel_lines_changed: 50,
       otel_commits_count: 3,
@@ -462,7 +462,9 @@ defmodule SymphonyElixir.OrchestratorOtelTest do
     totals = completed_state.agent_totals
 
     # OTel-only fields carry forward to agent_totals
-    assert totals.tool_executions == [%{name: "Bash", duration_ms: 500, success: true}]
+    assert totals.tool_calls == 1
+    assert totals.tool_duration_total_ms == 500
+    assert totals.tool_errors == 0
     assert totals.api_errors == 2
     assert totals.lines_changed == 50
     assert totals.commits_count == 3

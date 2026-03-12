@@ -99,16 +99,9 @@ defmodule SymphonyElixirWeb.Presenter do
   defp issue_status(_running, _retry), do: "running"
 
   defp running_entry_payload(entry) do
-    tool_executions = Map.get(entry, :otel_tool_executions, [])
-    tool_calls = length(tool_executions)
-
-    tool_avg_duration_ms =
-      if tool_calls > 0 do
-        total_ms = Enum.reduce(tool_executions, 0, fn t, acc -> acc + Map.get(t, :duration_ms, 0) end)
-        div(total_ms, tool_calls)
-      else
-        0
-      end
+    tool_calls = Map.get(entry, :otel_tool_calls, 0)
+    tool_duration_total_ms = Map.get(entry, :otel_tool_duration_total_ms, 0)
+    tool_avg_duration_ms = if tool_calls > 0, do: div(tool_duration_total_ms, tool_calls), else: 0
 
     %{
       issue_id: entry.issue_id,
@@ -204,16 +197,9 @@ defmodule SymphonyElixirWeb.Presenter do
         totals
       )
 
-    tool_executions = Map.get(enriched, :tool_executions, [])
-    tool_calls = length(tool_executions)
-
-    tool_avg_duration_ms =
-      if tool_calls > 0 do
-        total_ms = Enum.reduce(tool_executions, 0, fn t, acc -> acc + Map.get(t, :duration_ms, 0) end)
-        div(total_ms, tool_calls)
-      else
-        0
-      end
+    tool_calls = Map.get(enriched, :tool_calls, 0)
+    tool_duration_total_ms = Map.get(enriched, :tool_duration_total_ms, 0)
+    tool_avg_duration_ms = if tool_calls > 0, do: div(tool_duration_total_ms, tool_calls), else: 0
 
     enriched
     |> Map.put(:cache_hit_rate, cache_hit_rate(enriched.input_tokens, enriched.cache_read_tokens))
@@ -224,7 +210,7 @@ defmodule SymphonyElixirWeb.Presenter do
     |> Map.put(:tool_avg_duration_ms, tool_avg_duration_ms)
     |> Map.put(:api_errors, Map.get(enriched, :api_errors, 0))
     |> Map.put(:active_time_seconds, Map.get(enriched, :active_time_seconds, 0))
-    |> Map.drop([:tool_executions])
+    |> Map.drop([:tool_duration_total_ms, :tool_errors])
   end
 
   @doc false

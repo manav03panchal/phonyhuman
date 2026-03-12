@@ -219,10 +219,9 @@ defmodule SymphonyElixirWeb.PresenterTest do
             output_tokens: 200,
             total_tokens: 1_200,
             seconds_running: 120,
-            tool_executions: [
-              %{name: "Bash", duration_ms: 500, success: true},
-              %{name: "Read", duration_ms: 100, success: true}
-            ],
+            tool_calls: 2,
+            tool_duration_total_ms: 600,
+            tool_errors: 0,
             api_errors: 2,
             lines_changed: 142,
             commits_count: 3,
@@ -241,7 +240,8 @@ defmodule SymphonyElixirWeb.PresenterTest do
       assert payload.agent_totals.tool_avg_duration_ms == 300
       assert payload.agent_totals.api_errors == 2
       assert payload.agent_totals.active_time_seconds == 754
-      refute Map.has_key?(payload.agent_totals, :tool_executions)
+      refute Map.has_key?(payload.agent_totals, :tool_duration_total_ms)
+      refute Map.has_key?(payload.agent_totals, :tool_errors)
     end
 
     test "defaults OTel fields to 0 when absent" do
@@ -293,10 +293,9 @@ defmodule SymphonyElixirWeb.PresenterTest do
               last_agent_message: nil,
               last_agent_event: nil,
               runtime_seconds: 120,
-              otel_tool_executions: [
-                %{name: "Bash", duration_ms: 500, success: true},
-                %{name: "Edit", duration_ms: 300, success: true}
-              ],
+              otel_tool_calls: 2,
+              otel_tool_duration_total_ms: 800,
+              otel_tool_errors: 0,
               otel_api_errors: 1,
               otel_lines_changed: 99,
               otel_commits_count: 4,
