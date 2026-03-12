@@ -55,7 +55,6 @@ type Model struct {
 	metrics types.AgentMetrics
 	limits  []types.RateLimit
 	project types.ProjectInfo
-	panel   int // active panel index for tab switching
 
 	// Lifecycle context — cancelled on model teardown to stop SSE/poll goroutines.
 	ctx    context.Context
@@ -187,8 +186,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sseSub.Close()
 		}
 		return m, tea.Quit
-	case "tab":
-		m.panel = (m.panel + 1) % 3
 	case "p":
 		if m.state != nil && m.state.FleetStatus == "paused" {
 			m.prompt = promptConfirmResume
