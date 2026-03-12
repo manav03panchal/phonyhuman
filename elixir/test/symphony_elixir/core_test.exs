@@ -245,7 +245,7 @@ defmodule SymphonyElixir.CoreTest do
             started_at: DateTime.utc_now()
           }
         },
-        claimed: MapSet.new([issue_id]),
+        claimed: %{issue_id => DateTime.utc_now()},
         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{}
       }
@@ -262,7 +262,7 @@ defmodule SymphonyElixir.CoreTest do
       updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
 
       refute Map.has_key?(updated_state.running, issue_id)
-      refute MapSet.member?(updated_state.claimed, issue_id)
+      refute Map.has_key?(updated_state.claimed, issue_id)
       refute Process.alive?(agent_pid)
       assert File.exists?(workspace)
     after
@@ -308,7 +308,7 @@ defmodule SymphonyElixir.CoreTest do
             started_at: DateTime.utc_now()
           }
         },
-        claimed: MapSet.new([issue_id]),
+        claimed: %{issue_id => DateTime.utc_now()},
         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
         retry_attempts: %{}
       }
@@ -325,7 +325,7 @@ defmodule SymphonyElixir.CoreTest do
       updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
 
       refute Map.has_key?(updated_state.running, issue_id)
-      refute MapSet.member?(updated_state.claimed, issue_id)
+      refute Map.has_key?(updated_state.claimed, issue_id)
       refute Process.alive?(agent_pid)
       refute File.exists?(workspace)
     after
@@ -350,7 +350,7 @@ defmodule SymphonyElixir.CoreTest do
           started_at: DateTime.utc_now()
         }
       },
-      claimed: MapSet.new([issue_id]),
+      claimed: %{issue_id => DateTime.utc_now()},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
       retry_attempts: %{}
     }
@@ -368,7 +368,7 @@ defmodule SymphonyElixir.CoreTest do
     updated_entry = updated_state.running[issue_id]
 
     assert Map.has_key?(updated_state.running, issue_id)
-    assert MapSet.member?(updated_state.claimed, issue_id)
+    assert Map.has_key?(updated_state.claimed, issue_id)
     assert updated_entry.issue.state == "In Progress"
   end
 
@@ -397,7 +397,7 @@ defmodule SymphonyElixir.CoreTest do
           started_at: DateTime.utc_now()
         }
       },
-      claimed: MapSet.new([issue_id]),
+      claimed: %{issue_id => DateTime.utc_now()},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
       retry_attempts: %{}
     }
@@ -415,7 +415,7 @@ defmodule SymphonyElixir.CoreTest do
     updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
 
     refute Map.has_key?(updated_state.running, issue_id)
-    refute MapSet.member?(updated_state.claimed, issue_id)
+    refute Map.has_key?(updated_state.claimed, issue_id)
     refute Process.alive?(agent_pid)
   end
 
@@ -444,7 +444,7 @@ defmodule SymphonyElixir.CoreTest do
     :sys.replace_state(pid, fn _ ->
       initial_state
       |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:claimed, %{issue_id => DateTime.utc_now()})
       |> Map.put(:retry_attempts, %{})
     end)
 
@@ -453,7 +453,7 @@ defmodule SymphonyElixir.CoreTest do
     state = :sys.get_state(pid)
 
     refute Map.has_key?(state.running, issue_id)
-    assert MapSet.member?(state.completed, issue_id)
+    assert Map.has_key?(state.completed, issue_id)
     assert %{attempt: 1, due_at_ms: due_at_ms} = state.retry_attempts[issue_id]
     assert is_integer(due_at_ms)
     assert_due_in_range(due_at_ms, 200, 1_100)
@@ -485,7 +485,7 @@ defmodule SymphonyElixir.CoreTest do
     :sys.replace_state(pid, fn _ ->
       initial_state
       |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:claimed, %{issue_id => DateTime.utc_now()})
       |> Map.put(:retry_attempts, %{})
     end)
 
@@ -524,7 +524,7 @@ defmodule SymphonyElixir.CoreTest do
     :sys.replace_state(pid, fn _ ->
       initial_state
       |> Map.put(:running, %{issue_id => running_entry})
-      |> Map.put(:claimed, MapSet.new([issue_id]))
+      |> Map.put(:claimed, %{issue_id => DateTime.utc_now()})
       |> Map.put(:retry_attempts, %{})
     end)
 
