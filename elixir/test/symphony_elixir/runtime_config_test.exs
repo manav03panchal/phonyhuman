@@ -160,4 +160,31 @@ defmodule SymphonyElixir.RuntimeConfigTest do
       System.delete_env("ALLOWED_ORIGINS")
     end
   end
+
+  describe "signing_salt/1" do
+    test "generates a random base64 salt when env var is not set" do
+      System.delete_env("TEST_SIGNING_SALT")
+
+      salt = SymphonyElixir.RuntimeConfig.signing_salt("TEST_SIGNING_SALT")
+      assert is_binary(salt)
+      assert byte_size(salt) == 44
+      assert {:ok, _} = Base.decode64(salt)
+    end
+
+    test "returns different salts on each call when env var is not set" do
+      System.delete_env("TEST_SIGNING_SALT")
+
+      salt1 = SymphonyElixir.RuntimeConfig.signing_salt("TEST_SIGNING_SALT")
+      salt2 = SymphonyElixir.RuntimeConfig.signing_salt("TEST_SIGNING_SALT")
+      assert salt1 != salt2
+    end
+
+    test "uses env var value when set" do
+      System.put_env("TEST_SIGNING_SALT", "my-custom-salt")
+
+      assert SymphonyElixir.RuntimeConfig.signing_salt("TEST_SIGNING_SALT") == "my-custom-salt"
+    after
+      System.delete_env("TEST_SIGNING_SALT")
+    end
+  end
 end

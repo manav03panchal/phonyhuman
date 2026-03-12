@@ -8,8 +8,8 @@ defmodule SymphonyElixirWeb.Endpoint do
   @session_options [
     store: :cookie,
     key: "_symphony_elixir_key",
-    signing_salt: "symphony-session",
-    encryption_salt: "jNrxQsN1WgZ79l8323bN",
+    signing_salt: :crypto.strong_rand_bytes(32) |> Base.encode64(),
+    encryption_salt: :crypto.strong_rand_bytes(32) |> Base.encode64(),
     same_site: "Lax",
     secure: Mix.env() == :prod
   ]
