@@ -1,6 +1,32 @@
 defmodule SymphonyElixir.RuntimeConfig do
   @moduledoc false
 
+  require Logger
+
+  @default_port 4000
+
+  @spec parse_port() :: pos_integer()
+  def parse_port do
+    case System.get_env("PORT") do
+      nil ->
+        @default_port
+
+      val ->
+        case Integer.parse(val) do
+          {port, ""} when port >= 1 and port <= 65_535 ->
+            port
+
+          {_port, ""} ->
+            Logger.warning("PORT=#{val} is outside valid range 1-65535, falling back to #{@default_port}")
+            @default_port
+
+          _ ->
+            Logger.warning("PORT=#{val} is not a valid integer, falling back to #{@default_port}")
+            @default_port
+        end
+    end
+  end
+
   @spec secret_key_base!(atom()) :: String.t()
   def secret_key_base!(env) do
     case {env, System.get_env("SECRET_KEY_BASE")} do

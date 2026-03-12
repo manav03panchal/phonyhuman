@@ -52,21 +52,19 @@ defmodule SymphonyElixir.Workspace do
   end
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
-  def remove(workspace) do
-    case File.exists?(workspace) do
-      true ->
-        case validate_workspace_path(workspace) do
-          :ok ->
-            maybe_run_before_remove_hook(workspace)
-            File.rm_rf(workspace)
-
-          {:error, reason} ->
-            {:error, reason, ""}
-        end
-
-      false ->
+  def remove(workspace) when is_binary(workspace) and workspace != "" do
+    case validate_workspace_path(workspace) do
+      :ok ->
+        if File.exists?(workspace), do: maybe_run_before_remove_hook(workspace)
         File.rm_rf(workspace)
+
+      {:error, reason} ->
+        {:error, reason, ""}
     end
+  end
+
+  def remove(_workspace) do
+    {:error, :invalid_path, ""}
   end
 
   @spec remove_issue_workspaces(term()) :: :ok

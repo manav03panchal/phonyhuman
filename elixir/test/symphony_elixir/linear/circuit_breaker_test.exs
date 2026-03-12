@@ -144,6 +144,75 @@ defmodule SymphonyElixir.Linear.CircuitBreakerTest do
     assert CircuitBreaker.status(name: name) == :closed
   end
 
+  test "4 failures then success then failure leaves count at 1 not 5" do
+    name = :"cb_threshold5_#{System.unique_integer([:positive])}"
+
+    {:ok, pid} =
+      CircuitBreaker.start_link(
+        name: name,
+        failure_threshold: 5,
+        cooldown_ms: 100,
+        probe_interval_ms: 50
+      )
+
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+    # 4 failures (below threshold of 5)
+    for _ <- 1..4 do
+      CircuitBreaker.call(fn -> {:error, :fail} end, name: name)
+    end
+
+    assert CircuitBreaker.status(name: name) == :closed
+
+    # 1 success should reset failure_count to 0
+    CircuitBreaker.call(fn -> {:ok, :data} end, name: name)
+
+    # 1 more failure → count should be 1, not 5
+    CircuitBreaker.call(fn -> {:error, :fail} end, name: name)
+    assert CircuitBreaker.status(name: name) == :closed
+
+    # 4 more failures → count reaches 5 → circuit opens (proves reset worked)
+    capture_log(fn ->
+      for _ <- 1..4 do
+        CircuitBreaker.call(fn -> {:error, :fail} end, name: name)
+      end
+    end)
+
+    assert CircuitBreaker.status(name: name) == :open
+  end
+
+  test "half_open to closed transition resets failure count", %{name: name} do
+    # Trip the circuit (threshold=3)
+    capture_log(fn ->
+      for _ <- 1..3 do
+        CircuitBreaker.call(fn -> {:error, :fail} end, name: name)
+      end
+    end)
+
+    assert CircuitBreaker.status(name: name) == :open
+
+    # Wait for cooldown, then succeed to recover (half_open → closed)
+    Process.sleep(110)
+
+    capture_log(fn ->
+      CircuitBreaker.call(fn -> {:ok, :recovered} end, name: name)
+    end)
+
+    assert CircuitBreaker.status(name: name) == :closed
+
+    # 2 failures should not open circuit (count was reset, threshold=3)
+    CircuitBreaker.call(fn -> {:error, :fail} end, name: name)
+    CircuitBreaker.call(fn -> {:error, :fail} end, name: name)
+    assert CircuitBreaker.status(name: name) == :closed
+
+    # 1 more failure → count=3 → opens (proves count was reset to 0 after recovery)
+    capture_log(fn ->
+      CircuitBreaker.call(fn -> {:error, :fail} end, name: name)
+    end)
+
+    assert CircuitBreaker.status(name: name) == :open
+  end
+
   test "reset returns circuit to closed state", %{name: name} do
     capture_log(fn ->
       for _ <- 1..3 do
