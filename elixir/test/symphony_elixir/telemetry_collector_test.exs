@@ -375,6 +375,184 @@ defmodule SymphonyElixir.TelemetryCollectorTest do
     end
   end
 
+  describe "event capping" do
+    setup do
+      collector_name = :"cap_collector_#{System.unique_integer([:positive])}"
+
+      {:ok, collector} =
+        TelemetryCollector.start_link(
+          name: collector_name,
+          port: 0,
+          orchestrator: self()
+        )
+
+      on_exit(fn ->
+        if Process.alive?(collector), do: GenServer.stop(collector)
+      end)
+
+      %{collector: collector, name: collector_name}
+    end
+
+    test "caps events per session at @max_events_per_session", %{name: name} do
+      # Ingest logs in batches to exceed the 100-event cap
+      for i <- 1..12 do
+        payload = %{
+          "resourceLogs" => [
+            %{
+              "resource" => %{
+                "attributes" => [
+                  %{"key" => "session.id", "value" => %{"stringValue" => "sess-cap"}}
+                ]
+              },
+              "scopeLogs" => [
+                %{
+                  "logRecords" =>
+                    for j <- 1..10 do
+                      %{
+                        "body" => %{"stringValue" => "claude_code.event_#{i}_#{j}"},
+                        "attributes" => [],
+                        "timeUnixNano" => "170000000000000000#{i}",
+                        "severityText" => "INFO"
+                      }
+                    end
+                }
+              ]
+            }
+          ]
+        }
+
+        TelemetryCollector.ingest_logs(name, payload)
+      end
+
+      # Wait for processing to complete
+      # Drain all otel_metrics messages
+      :timer.sleep(100)
+      drain_messages()
+
+      state = TelemetryCollector.get_state(name)
+      events = state["sess-cap"].events
+      # Should be capped at 100 (the @max_events_per_session default)
+      assert length(events) == 100
+      # Should keep the most recent events (last batch)
+      assert hd(events).name == "claude_code.event_3_1"
+      assert List.last(events).name == "claude_code.event_12_10"
+    end
+
+    defp drain_messages do
+      receive do
+        {:otel_metrics, _, _} -> drain_messages()
+      after
+        0 -> :ok
+      end
+    end
+  end
+
+  describe "session pruning" do
+    test "prune_sessions message triggers stale session removal" do
+      collector_name = :"prune_collector_#{System.unique_integer([:positive])}"
+
+      {:ok, collector} =
+        TelemetryCollector.start_link(
+          name: collector_name,
+          port: 0,
+          orchestrator: self()
+        )
+
+      # Ingest data to create a session
+      TelemetryCollector.ingest_metrics(collector_name, %{
+        "resourceMetrics" => [
+          %{
+            "resource" => %{
+              "attributes" => [
+                %{"key" => "session.id", "value" => %{"stringValue" => "sess-prune"}}
+              ]
+            },
+            "scopeMetrics" => [
+              %{
+                "metrics" => [
+                  %{
+                    "name" => "claude_code.test",
+                    "sum" => %{
+                      "dataPoints" => [%{"asInt" => "1", "attributes" => []}]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
+
+      assert_receive {:otel_metrics, "sess-prune", _}, 1_000
+      state = TelemetryCollector.get_state(collector_name)
+      assert Map.has_key?(state, "sess-prune")
+
+      # Manually inject an old timestamp to simulate staleness
+      # by manipulating the GenServer state directly
+      :sys.replace_state(Process.whereis(collector_name), fn state ->
+        old_ts = System.monotonic_time(:millisecond) - :timer.minutes(31)
+        %{state | session_timestamps: %{"sess-prune" => old_ts}}
+      end)
+
+      # Trigger prune
+      send(Process.whereis(collector_name), :prune_sessions)
+
+      # Give it a moment to process
+      :timer.sleep(50)
+
+      state = TelemetryCollector.get_state(collector_name)
+      refute Map.has_key?(state, "sess-prune")
+
+      if Process.alive?(collector), do: GenServer.stop(collector)
+    end
+
+    test "recent sessions are not pruned" do
+      collector_name = :"keep_collector_#{System.unique_integer([:positive])}"
+
+      {:ok, collector} =
+        TelemetryCollector.start_link(
+          name: collector_name,
+          port: 0,
+          orchestrator: self()
+        )
+
+      TelemetryCollector.ingest_metrics(collector_name, %{
+        "resourceMetrics" => [
+          %{
+            "resource" => %{
+              "attributes" => [
+                %{"key" => "session.id", "value" => %{"stringValue" => "sess-keep"}}
+              ]
+            },
+            "scopeMetrics" => [
+              %{
+                "metrics" => [
+                  %{
+                    "name" => "claude_code.test",
+                    "sum" => %{
+                      "dataPoints" => [%{"asInt" => "1", "attributes" => []}]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      })
+
+      assert_receive {:otel_metrics, "sess-keep", _}, 1_000
+
+      # Trigger prune — session is recent, should survive
+      send(Process.whereis(collector_name), :prune_sessions)
+      :timer.sleep(50)
+
+      state = TelemetryCollector.get_state(collector_name)
+      assert Map.has_key?(state, "sess-keep")
+
+      if Process.alive?(collector), do: GenServer.stop(collector)
+    end
+  end
+
   describe "HTTP integration" do
     setup do
       collector_name = :"http_collector_#{System.unique_integer([:positive])}"

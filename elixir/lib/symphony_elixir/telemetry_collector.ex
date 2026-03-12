@@ -10,6 +10,9 @@ defmodule SymphonyElixir.TelemetryCollector do
 
   @default_port 4318
   @claude_code_prefix "claude_code."
+  @max_events_per_session 100
+  @session_ttl_ms :timer.minutes(30)
+  @prune_interval_ms :timer.minutes(1)
 
   # -------------------------------------------------------------------
   # Public API
@@ -57,10 +60,12 @@ defmodule SymphonyElixir.TelemetryCollector do
         Process.unlink(listener_ref)
         listener_monitor = Process.monitor(listener_ref)
         bound = resolve_bound_port(listener_ref)
+        schedule_prune()
 
         {:ok,
          %{
            sessions: %{},
+           session_timestamps: %{},
            orchestrator: orchestrator,
            listener_ref: listener_ref,
            listener_monitor: listener_monitor,
@@ -71,8 +76,11 @@ defmodule SymphonyElixir.TelemetryCollector do
       {:error, reason} ->
         Logger.warning("TelemetryCollector failed to start HTTP listener: #{inspect(reason)}")
 
+        schedule_prune()
+
         state = %{
           sessions: %{},
+          session_timestamps: %{},
           orchestrator: orchestrator,
           listener_ref: nil,
           listener_monitor: nil,
@@ -88,6 +96,11 @@ defmodule SymphonyElixir.TelemetryCollector do
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{listener_monitor: ref} = state) do
     Logger.warning("TelemetryCollector listener exited: #{inspect(reason)}")
     {:noreply, %{state | listener_ref: nil, listener_monitor: nil, bound_port: nil}}
+  end
+
+  def handle_info(:prune_sessions, state) do
+    schedule_prune()
+    {:noreply, prune_stale_sessions(state)}
   end
 
   @impl true
@@ -330,25 +343,60 @@ defmodule SymphonyElixir.TelemetryCollector do
   defp extract_scope_logs(_), do: []
 
   defp merge_sessions(state, new_sessions) do
-    updated =
-      Enum.reduce(new_sessions, state.sessions, fn {session_id, metrics}, acc ->
-        Map.update(acc, session_id, metrics, &deep_merge_metrics(&1, metrics))
+    now = System.monotonic_time(:millisecond)
+
+    {updated_sessions, updated_ts} =
+      Enum.reduce(new_sessions, {state.sessions, state.session_timestamps}, fn {session_id, metrics}, {sacc, tacc} ->
+        {Map.update(sacc, session_id, metrics, &deep_merge_metrics(&1, metrics)), Map.put(tacc, session_id, now)}
       end)
 
-    %{state | sessions: updated}
+    %{state | sessions: updated_sessions, session_timestamps: updated_ts}
   end
 
   defp merge_log_sessions(state, new_sessions) do
-    updated =
-      Enum.reduce(new_sessions, state.sessions, fn {session_id, data}, acc ->
-        Map.update(acc, session_id, data, fn existing ->
-          Map.update(existing, :events, Map.get(data, :events, []), fn existing_events ->
-            existing_events ++ Map.get(data, :events, [])
+    now = System.monotonic_time(:millisecond)
+
+    {updated_sessions, updated_ts} =
+      Enum.reduce(new_sessions, {state.sessions, state.session_timestamps}, fn {session_id, data}, {sacc, tacc} ->
+        merged =
+          Map.update(sacc, session_id, data, fn existing ->
+            Map.update(existing, :events, Map.get(data, :events, []), fn existing_events ->
+              (existing_events ++ Map.get(data, :events, []))
+              |> Enum.take(-@max_events_per_session)
+            end)
           end)
-        end)
+
+        {merged, Map.put(tacc, session_id, now)}
       end)
 
-    %{state | sessions: updated}
+    %{state | sessions: updated_sessions, session_timestamps: updated_ts}
+  end
+
+  defp schedule_prune do
+    Process.send_after(self(), :prune_sessions, @prune_interval_ms)
+  end
+
+  defp prune_stale_sessions(state) do
+    now = System.monotonic_time(:millisecond)
+
+    stale_ids =
+      state.session_timestamps
+      |> Enum.filter(fn {_id, ts} -> now - ts > @session_ttl_ms end)
+      |> Enum.map(fn {id, _ts} -> id end)
+
+    case stale_ids do
+      [] ->
+        state
+
+      ids ->
+        Logger.debug("TelemetryCollector pruning #{length(ids)} stale session(s)")
+
+        %{
+          state
+          | sessions: Map.drop(state.sessions, ids),
+            session_timestamps: Map.drop(state.session_timestamps, ids)
+        }
+    end
   end
 
   defp deep_merge_metrics(existing, new) do
