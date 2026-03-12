@@ -124,6 +124,38 @@ defmodule SymphonyElixirWeb.EventsControllerTest do
       assert Plug.Conn.get_resp_header(conn, "cache-control") == ["no-cache"]
     end
 
+    test "broadcast triggers additional state_update in sse_loop" do
+      orchestrator_name = :"events_bcast_orch_#{System.unique_integer([:positive])}"
+      {:ok, pid} = MockOrchestrator.start_link(mock_snapshot(), orchestrator_name)
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+      start_test_endpoint(
+        orchestrator: orchestrator_name,
+        snapshot_timeout_ms: 5_000,
+        sse_idle_timeout_ms: 200
+      )
+
+      # Schedule a broadcast shortly after the SSE connection subscribes.
+      # The sse_loop receive will pick up :observability_updated before idle timeout.
+      spawn(fn ->
+        Process.sleep(20)
+        SymphonyElixirWeb.ObservabilityPubSub.broadcast_update()
+      end)
+
+      conn = get(build_conn(), "/api/v1/events")
+      body = conn.resp_body || ""
+
+      # Should contain at least 2 state_update events: initial + broadcast
+      event_count =
+        body
+        |> String.split("event: state_update")
+        |> length()
+        |> Kernel.-(1)
+
+      assert event_count >= 2,
+             "Expected at least 2 state_update events, got #{event_count}. Body: #{body}"
+    end
+
     test "method not allowed for POST" do
       orchestrator_name = :"events_post_orch_#{System.unique_integer([:positive])}"
       {:ok, pid} = MockOrchestrator.start_link(mock_snapshot(), orchestrator_name)
