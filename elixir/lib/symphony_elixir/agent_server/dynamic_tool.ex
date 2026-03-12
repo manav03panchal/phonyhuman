@@ -5,6 +5,9 @@ defmodule SymphonyElixir.AgentServer.DynamicTool do
 
   alias SymphonyElixir.Linear.Client
 
+  @max_query_bytes 100_000
+  @max_variables_bytes 100_000
+
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
   Execute a raw GraphQL query or mutation against Linear using Symphony's configured auth.
@@ -68,6 +71,7 @@ defmodule SymphonyElixir.AgentServer.DynamicTool do
   defp normalize_linear_graphql_arguments(arguments) when is_binary(arguments) do
     case String.trim(arguments) do
       "" -> {:error, :missing_query}
+      query when byte_size(query) > @max_query_bytes -> {:error, :query_too_large}
       query -> {:ok, query, %{}}
     end
   end
@@ -95,6 +99,7 @@ defmodule SymphonyElixir.AgentServer.DynamicTool do
       query when is_binary(query) ->
         case String.trim(query) do
           "" -> {:error, :missing_query}
+          trimmed when byte_size(trimmed) > @max_query_bytes -> {:error, :query_too_large}
           trimmed -> {:ok, trimmed}
         end
 
@@ -105,8 +110,17 @@ defmodule SymphonyElixir.AgentServer.DynamicTool do
 
   defp normalize_variables(arguments) do
     case Map.get(arguments, "variables") || Map.get(arguments, :variables) || %{} do
-      variables when is_map(variables) -> {:ok, variables}
-      _ -> {:error, :invalid_variables}
+      variables when is_map(variables) ->
+        encoded = Jason.encode!(variables)
+
+        if byte_size(encoded) > @max_variables_bytes do
+          {:error, :variables_too_large}
+        else
+          {:ok, variables}
+        end
+
+      _ ->
+        {:error, :invalid_variables}
     end
   end
 
@@ -151,6 +165,22 @@ defmodule SymphonyElixir.AgentServer.DynamicTool do
     %{
       "error" => %{
         "message" => "`linear_graphql` requires a non-empty `query` string."
+      }
+    }
+  end
+
+  defp tool_error_payload(:query_too_large) do
+    %{
+      "error" => %{
+        "message" => "`linear_graphql` query exceeds the #{@max_query_bytes} byte size limit."
+      }
+    }
+  end
+
+  defp tool_error_payload(:variables_too_large) do
+    %{
+      "error" => %{
+        "message" => "`linear_graphql` variables exceed the #{@max_variables_bytes} byte size limit."
       }
     }
   end

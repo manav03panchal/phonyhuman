@@ -359,6 +359,107 @@ defmodule SymphonyElixir.AgentServer.DynamicToolTest do
            }
   end
 
+  test "linear_graphql rejects queries exceeding the byte-size limit" do
+    oversized_query = String.duplicate("x", 100_001)
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => oversized_query},
+        linear_client: fn _query, _variables, _opts ->
+          flunk("linear client should not be called for oversized queries")
+        end
+      )
+
+    assert response["success"] == false
+
+    assert [%{"text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "error" => %{
+               "message" => "`linear_graphql` query exceeds the 100000 byte size limit."
+             }
+           }
+  end
+
+  test "linear_graphql accepts queries at the byte-size limit" do
+    at_limit_query = String.duplicate("x", 100_000)
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => at_limit_query},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{}}}
+        end
+      )
+
+    assert response["success"] == true
+  end
+
+  test "linear_graphql rejects raw string queries exceeding the byte-size limit" do
+    oversized_query = String.duplicate("x", 100_001)
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        oversized_query,
+        linear_client: fn _query, _variables, _opts ->
+          flunk("linear client should not be called for oversized queries")
+        end
+      )
+
+    assert response["success"] == false
+
+    assert [%{"text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "error" => %{
+               "message" => "`linear_graphql` query exceeds the 100000 byte size limit."
+             }
+           }
+  end
+
+  test "linear_graphql rejects variables exceeding the byte-size limit" do
+    oversized_value = String.duplicate("x", 100_001)
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }", "variables" => %{"data" => oversized_value}},
+        linear_client: fn _query, _variables, _opts ->
+          flunk("linear client should not be called for oversized variables")
+        end
+      )
+
+    assert response["success"] == false
+
+    assert [%{"text" => text}] = response["contentItems"]
+
+    assert Jason.decode!(text) == %{
+             "error" => %{
+               "message" => "`linear_graphql` variables exceed the 100000 byte size limit."
+             }
+           }
+  end
+
+  test "linear_graphql accepts variables at the byte-size limit" do
+    # JSON encoding of %{"k" => "..."} adds overhead, so size the value accordingly
+    # %{"k":"..."} is 6 bytes of overhead, so value can be up to 99_994 bytes
+    at_limit_value = String.duplicate("x", 99_990)
+
+    response =
+      DynamicTool.execute(
+        "linear_graphql",
+        %{"query" => "query Viewer { viewer { id } }", "variables" => %{"k" => at_limit_value}},
+        linear_client: fn _query, _variables, _opts ->
+          {:ok, %{"data" => %{}}}
+        end
+      )
+
+    assert response["success"] == true
+  end
+
   test "linear_graphql falls back to inspect for non-JSON payloads" do
     response =
       DynamicTool.execute(
