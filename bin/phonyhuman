@@ -853,8 +853,17 @@ The LINEAR_API_KEY is already in your environment.
 """
 
 # Build active/terminal state YAML lines
+def yaml_quote(value):
+    """Quote a string for safe YAML embedding (handles :, #, {, etc.)."""
+    special_chars = (':', '#', '{', '}', '[', ']', ',', '&', '*', '?', '|',
+                     '-', '<', '>', '=', '!', '%', '@', '`', '"', "'")
+    s = str(value)
+    if any(c in s for c in special_chars) or s != s.strip() or not s:
+        return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    return s
+
 def yaml_list(items):
-    return "\n".join(f"    - {s}" for s in items)
+    return "\n".join(f"    - {yaml_quote(s)}" for s in items)
 
 before_run     = repo.get("before_run", "")
 after_run      = repo.get("after_run", "")
@@ -889,7 +898,7 @@ if before_remove:
 workflow = f"""---
 tracker:
   kind: linear
-  project_slug: "{slug}"
+  project_slug: {yaml_quote(slug)}
   active_states:
 {yaml_list(active_states)}
   terminal_states:
@@ -897,13 +906,13 @@ tracker:
 polling:
   interval_ms: {poll_ms}
 workspace:
-  root: {ws_root}
+  root: {yaml_quote(ws_root)}
 hooks:
 {hooks_section}agent:
   max_concurrent_agents: {max_agents}
   max_turns: {max_turns}
 agent_server:
-  command: "python3 {shim_path}"
+  command: {yaml_quote("python3 " + shim_path)}
   approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:

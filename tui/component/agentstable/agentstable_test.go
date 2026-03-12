@@ -178,6 +178,31 @@ func TestTruncateStr(t *testing.T) {
 	}
 }
 
+func TestTruncateStr_UTF8(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		max   int
+		want  string
+	}{
+		{"emoji within limit", "Hi 🎉", 10, "Hi 🎉"},
+		{"emoji truncated", "Hello 🌍🌍🌍🌍🌍", 10, "Hello 🌍..."},
+		{"CJK truncated", "中文字符测试内容很长", 7, "中文字符..."},
+		{"CJK within limit", "中文", 5, "中文"},
+		{"mixed multi-byte", "abc🎉def中文gh", 8, "abc🎉d..."},
+		{"max <= 3 with emoji", "🎉🎉🎉🎉", 3, "🎉🎉🎉"},
+		{"max <= 3 truncated", "🎉🎉🎉🎉🎉", 2, "🎉🎉"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateStr(tt.input, tt.max)
+			if got != tt.want {
+				t.Errorf("truncateStr(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEnterKeyEmitsAgentSelected(t *testing.T) {
 	m := New()
 	agents := sampleAgents()
