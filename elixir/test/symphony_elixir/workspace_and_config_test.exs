@@ -965,6 +965,35 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.max_concurrent_agents_for_state(:not_a_string) == 10
   end
 
+  test "validate! warns when per-state agent limit exceeds global max" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      max_concurrent_agents: 5,
+      max_concurrent_agents_by_state: %{"Todo" => 3, "In Progress" => 8}
+    )
+
+    log =
+      capture_log(fn ->
+        assert :ok = Config.validate!()
+      end)
+
+    assert log =~ "Per-state agent limit for \"in progress\" (8) exceeds global max_concurrent_agents (5)"
+    refute log =~ "Per-state agent limit for \"todo\""
+  end
+
+  test "validate! does not warn when all per-state limits are within global max" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      max_concurrent_agents: 10,
+      max_concurrent_agents_by_state: %{"Todo" => 3, "In Progress" => 10}
+    )
+
+    log =
+      capture_log(fn ->
+        assert :ok = Config.validate!()
+      end)
+
+    refute log =~ "exceeds global max_concurrent_agents"
+  end
+
   test "workflow prompt is used when building base prompt" do
     workflow_prompt = "Workflow prompt body used as codex instruction."
 
