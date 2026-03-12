@@ -1107,4 +1107,39 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert log =~ "Config section [codex] is deprecated, use [agent] instead"
   end
+
+  test "agent_stall_timeout_ms returns :disabled for zero" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_stall_timeout_ms: 0)
+    assert Config.agent_stall_timeout_ms() == :disabled
+  end
+
+  test "agent_stall_timeout_ms returns :disabled for negative values with warning" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_stall_timeout_ms: -5000)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert Config.agent_stall_timeout_ms() == :disabled
+      end)
+
+    assert log =~ "agent_stall_timeout_ms is negative"
+  end
+
+  test "agent_stall_timeout_ms clamps below-minimum values to 30_000" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_stall_timeout_ms: 5_000)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert Config.agent_stall_timeout_ms() == 30_000
+      end)
+
+    assert log =~ "below minimum"
+  end
+
+  test "agent_stall_timeout_ms passes through values at or above minimum" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_stall_timeout_ms: 30_000)
+    assert Config.agent_stall_timeout_ms() == 30_000
+
+    write_workflow_file!(Workflow.workflow_file_path(), agent_stall_timeout_ms: 600_000)
+    assert Config.agent_stall_timeout_ms() == 600_000
+  end
 end

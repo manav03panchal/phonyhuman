@@ -460,21 +460,20 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp reconcile_stalled_running_issues(%State{} = state) do
-    timeout_ms = Config.agent_stall_timeout_ms()
-
-    cond do
-      timeout_ms <= 0 ->
+    case Config.agent_stall_timeout_ms() do
+      :disabled ->
         state
 
-      map_size(state.running) == 0 ->
-        state
+      timeout_ms ->
+        if map_size(state.running) == 0 do
+          state
+        else
+          now = DateTime.utc_now()
 
-      true ->
-        now = DateTime.utc_now()
-
-        Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
-          restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
-        end)
+          Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+            restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
+          end)
+        end
     end
   end
 
