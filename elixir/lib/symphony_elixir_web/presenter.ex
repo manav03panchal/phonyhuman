@@ -21,6 +21,7 @@ defmodule SymphonyElixirWeb.Presenter do
           retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
           agent_totals: enrich_agent_totals(snapshot.agent_totals),
           rate_limits: snapshot.rate_limits,
+          max_agents: Config.max_concurrent_agents(),
           fleet_status: Map.get(snapshot, :fleet_status, "running"),
           fleet_paused_until: Map.get(snapshot, :fleet_paused_until),
           fleet_pause_reason: Map.get(snapshot, :fleet_pause_reason)

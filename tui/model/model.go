@@ -61,41 +61,17 @@ type Model struct {
 	sseSub   *client.SSESubscription
 }
 
-// New creates a Model wired to the given API client with demo data.
+// New creates a Model wired to the given API client.
 // It eagerly creates an SSE subscription so the pointer is shared across
 // Bubble Tea's value copies of the model.
 func New(c *client.Client) Model {
 	return Model{
 		client: c,
 		metrics: types.AgentMetrics{
-			Running:           3,
-			MaxAgents:         5,
-			FleetStatus:       "running",
-			InputTokens:       1_250_000,
-			OutputTokens:      380_000,
-			CacheReadTokens:   890_000,
-			TotalTokens:       2_520_000,
-			CacheHitRate:      71.2,
-			CostUSD:           4.2847,
-			Model:             "claude-sonnet-4-6",
-			RuntimeSeconds:    1832,
-			TPS:               142.5,
-			TPSHistory:        []float64{80, 95, 110, 130, 125, 142, 138, 150, 145, 142, 155, 148, 140, 135, 142, 150, 148, 145, 140, 138, 142, 148, 145, 142},
-			LinesChanged:      847,
-			Commits:           12,
-			PRs:               3,
-			ToolCalls:         256,
-			ToolAvgDurationMs: 340,
-			ToolErrors:        2,
-		},
-		limits: []types.RateLimit{
-			{Name: "Requests", Used: 42, Limit: 60, ResetInSec: 18},
-			{Name: "Tokens", Used: 75000, Limit: 100000, ResetInSec: 45},
-			{Name: "Input", Used: 180000, Limit: 200000, ResetInSec: 12},
+			FleetStatus: "running",
 		},
 		project: types.ProjectInfo{
-			LinearURL:    "https://linear.app/humancorp/project/phonyhuman",
-			DashboardURL: "http://localhost:4000/dashboard",
+			DashboardURL: c.BaseURL(),
 			RefreshSec:   10,
 		},
 		useSSE: true,
@@ -218,8 +194,67 @@ func (m *Model) syncMetrics() {
 	if s == nil {
 		return
 	}
+
+	t := s.AgentTotals
+
 	m.metrics.FleetStatus = s.FleetStatus
 	m.metrics.Running = s.Counts.Running
+	if s.MaxAgents > 0 {
+		m.metrics.MaxAgents = s.MaxAgents
+	}
+
+	// Token metrics
+	m.metrics.InputTokens = int64(t.InputTokens)
+	m.metrics.OutputTokens = int64(t.OutputTokens)
+	m.metrics.CacheReadTokens = int64(t.CacheReadTokens)
+	m.metrics.TotalTokens = int64(t.TotalTokens)
+	m.metrics.CacheHitRate = t.CacheHitRate
+	m.metrics.CostUSD = t.CostUSD
+	if t.Model != nil {
+		m.metrics.Model = *t.Model
+	}
+
+	// Runtime & TPS
+	m.metrics.RuntimeSeconds = t.SecondsRunning
+	if t.SecondsRunning > 0 {
+		tps := float64(t.TotalTokens) / float64(t.SecondsRunning)
+		m.metrics.TPS = tps
+		// Append to sparkline history (keep last 24 points)
+		m.metrics.TPSHistory = append(m.metrics.TPSHistory, tps)
+		if len(m.metrics.TPSHistory) > 24 {
+			m.metrics.TPSHistory = m.metrics.TPSHistory[len(m.metrics.TPSHistory)-24:]
+		}
+	}
+
+	// Code stats
+	m.metrics.LinesChanged = t.LinesChanged
+	m.metrics.Commits = t.CommitsCount
+	m.metrics.PRs = t.PRsCount
+
+	// Tool stats
+	m.metrics.ToolCalls = t.ToolCalls
+	m.metrics.ToolAvgDurationMs = t.ToolAvgDurationMs
+	m.metrics.ToolErrors = t.APIErrors
+
+	// Rate limits
+	m.limits = m.limits[:0]
+	if s.RateLimits != nil {
+		rl := s.RateLimits
+		if rl.PrimaryBucket != nil {
+			m.limits = append(m.limits, types.RateLimit{
+				Name:  "Primary",
+				Used:  rl.PrimaryBucket.Capacity - rl.PrimaryBucket.Remaining,
+				Limit: rl.PrimaryBucket.Capacity,
+			})
+		}
+		if rl.SecondaryBucket != nil {
+			m.limits = append(m.limits, types.RateLimit{
+				Name:  "Secondary",
+				Used:  rl.SecondaryBucket.Capacity - rl.SecondaryBucket.Remaining,
+				Limit: rl.SecondaryBucket.Capacity,
+			})
+		}
+	}
 }
 
 func doPause(c *client.Client) tea.Cmd {

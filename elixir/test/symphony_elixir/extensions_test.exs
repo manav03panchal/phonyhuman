@@ -392,6 +392,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                "active_time_seconds" => 0
              },
              "rate_limits" => %{"primary" => %{"remaining" => 11}},
+             "max_agents" => state_payload["max_agents"],
              "fleet_status" => "running",
              "fleet_paused_until" => nil,
              "fleet_pause_reason" => nil

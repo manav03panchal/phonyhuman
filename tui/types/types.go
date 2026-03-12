@@ -15,7 +15,8 @@ type State struct {
 	Running          []AgentEntry `json:"running"`
 	Retrying         []RetryEntry `json:"retrying"`
 	AgentTotals      AgentTotals  `json:"agent_totals"`
-	RateLimits       RateLimits   `json:"rate_limits"`
+	RateLimits       *RateLimits  `json:"rate_limits"`
+	MaxAgents        int          `json:"max_agents"`
 	FleetStatus      string       `json:"fleet_status"`
 	FleetPausedUntil *string      `json:"fleet_paused_until"`
 	FleetPauseReason *string      `json:"fleet_pause_reason"`
@@ -84,6 +85,7 @@ type AgentTotals struct {
 	CacheCreationTokens int     `json:"cache_creation_tokens"`
 	CacheHitRate        float64 `json:"cache_hit_rate"`
 	CostUSD             float64 `json:"cost_usd"`
+	Model               *string `json:"model"`
 	SecondsRunning      int     `json:"seconds_running"`
 	LinesChanged        int     `json:"lines_changed"`
 	CommitsCount        int     `json:"commits_count"`
