@@ -139,6 +139,49 @@ else
     curl -sSL -o "$TMPDIR/phonyhuman.tar.gz" "$TARBALL_URL" || die "Download failed"
 fi
 
+# ── Verify checksum ─────────────────────────────────────────────────
+TARBALL_NAME=$(basename "$TARBALL_URL")
+CHECKSUMS_URL=$(echo "$RELEASE_JSON" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for asset in data.get('assets', []):
+    if asset['name'] == 'checksums.txt':
+        print(asset['browser_download_url'])
+        sys.exit(0)
+" 2>/dev/null)
+
+if [ -n "$CHECKSUMS_URL" ]; then
+    echo "  Verifying checksum..."
+    if [ -n "$AUTH_HEADER" ]; then
+        curl -sSL -H "$AUTH_HEADER" -o "$TMPDIR/checksums.txt" "$CHECKSUMS_URL" || die "Failed to download checksums"
+    else
+        curl -sSL -o "$TMPDIR/checksums.txt" "$CHECKSUMS_URL" || die "Failed to download checksums"
+    fi
+
+    EXPECTED_SUM=$(grep "$TARBALL_NAME" "$TMPDIR/checksums.txt" | awk '{print $1}')
+    if [ -z "$EXPECTED_SUM" ]; then
+        die "Checksum for $TARBALL_NAME not found in checksums.txt"
+    fi
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        ACTUAL_SUM=$(sha256sum "$TMPDIR/phonyhuman.tar.gz" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        ACTUAL_SUM=$(shasum -a 256 "$TMPDIR/phonyhuman.tar.gz" | awk '{print $1}')
+    else
+        die "Neither sha256sum nor shasum found — cannot verify checksum"
+    fi
+
+    if [ "$ACTUAL_SUM" != "$EXPECTED_SUM" ]; then
+        die "Checksum verification failed!
+  Expected: $EXPECTED_SUM
+  Got:      $ACTUAL_SUM
+  The downloaded file may be corrupted or tampered with."
+    fi
+    green "  Checksum verified"; echo ""
+else
+    yellow "  Warning: checksums.txt not found in release, skipping verification"; echo ""
+fi
+
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 

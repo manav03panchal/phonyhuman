@@ -550,6 +550,50 @@ if fallback:
         curl -sSL -o "$tmpdir/phonyhuman.tar.gz" "$tarball_url" || die "Download failed"
     fi
 
+    # ── Verify checksum ──────────────────────────────────────────────
+    local tarball_name checksums_url expected_sum actual_sum
+    tarball_name=$(basename "$tarball_url")
+    checksums_url=$(echo "$release_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for asset in data.get('assets', []):
+    if asset['name'] == 'checksums.txt':
+        print(asset['browser_download_url'])
+        sys.exit(0)
+" 2>/dev/null)
+
+    if [[ -n "$checksums_url" ]]; then
+        echo "  Verifying checksum..."
+        if [[ -n "$auth_header" ]]; then
+            curl -sSL -H "$auth_header" -o "$tmpdir/checksums.txt" "$checksums_url" || die "Failed to download checksums"
+        else
+            curl -sSL -o "$tmpdir/checksums.txt" "$checksums_url" || die "Failed to download checksums"
+        fi
+
+        expected_sum=$(grep "$tarball_name" "$tmpdir/checksums.txt" | awk '{print $1}')
+        if [[ -z "$expected_sum" ]]; then
+            die "Checksum for $tarball_name not found in checksums.txt"
+        fi
+
+        if command -v sha256sum &>/dev/null; then
+            actual_sum=$(sha256sum "$tmpdir/phonyhuman.tar.gz" | awk '{print $1}')
+        elif command -v shasum &>/dev/null; then
+            actual_sum=$(shasum -a 256 "$tmpdir/phonyhuman.tar.gz" | awk '{print $1}')
+        else
+            die "Neither sha256sum nor shasum found — cannot verify checksum"
+        fi
+
+        if [[ "$actual_sum" != "$expected_sum" ]]; then
+            die "Checksum verification failed!
+  Expected: $expected_sum
+  Got:      $actual_sum
+  The downloaded file may be corrupted or tampered with."
+        fi
+        green "  Checksum verified"; echo ""
+    else
+        yellow "  Warning: checksums.txt not found in release, skipping verification"; echo ""
+    fi
+
     # Extract over existing install
     tar xzf "$tmpdir/phonyhuman.tar.gz" -C "$PHONYHUMAN_HOME" --strip-components=0
 
