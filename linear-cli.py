@@ -19,11 +19,35 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 import urllib.request
 import urllib.error
 
 
-ENDPOINT = os.environ.get("LINEAR_ENDPOINT", "https://api.linear.app/graphql")
+def die(msg):
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+_DEFAULT_ENDPOINT = "https://api.linear.app/graphql"
+
+
+def _validate_endpoint(url):
+    """Validate that the endpoint is HTTPS on the linear.app domain."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        die(f"LINEAR_ENDPOINT must use HTTPS (got {parsed.scheme!r})")
+    host = parsed.hostname or ""
+    if host != "linear.app" and not host.endswith(".linear.app"):
+        die(
+            f"LINEAR_ENDPOINT must be on the linear.app domain (got {host!r})"
+        )
+    return url
+
+
+ENDPOINT = _validate_endpoint(
+    os.environ.get("LINEAR_ENDPOINT", _DEFAULT_ENDPOINT)
+)
 
 
 def _find_api_key():
@@ -47,11 +71,6 @@ def _find_api_key():
 
 
 API_KEY = _find_api_key()
-
-
-def die(msg):
-    print(f"error: {msg}", file=sys.stderr)
-    sys.exit(1)
 
 
 _TEAM_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*$")
