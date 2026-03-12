@@ -74,6 +74,40 @@ defmodule SymphonyElixirWeb.RateLimiterTest do
     end
   end
 
+  describe "rate limiting with invalid RATE_LIMIT_RPM" do
+    setup do
+      if :ets.whereis(:symphony_rate_limiter) != :undefined do
+        :ets.delete_all_objects(:symphony_rate_limiter)
+      end
+
+      original = System.get_env("RATE_LIMIT_RPM")
+      System.put_env("RATE_LIMIT_RPM", "abc")
+
+      on_exit(fn ->
+        restore_env("RATE_LIMIT_RPM", original)
+
+        if :ets.whereis(:symphony_rate_limiter) != :undefined do
+          :ets.delete_all_objects(:symphony_rate_limiter)
+        end
+      end)
+
+      :ok
+    end
+
+    test "falls back to default RPM when RATE_LIMIT_RPM is non-integer" do
+      log =
+        capture_log(fn ->
+          # With default RPM of 100, 4 requests should all succeed (not hit rate limit)
+          for _ <- 1..4 do
+            conn = build_conn() |> get("/api/v1/state")
+            assert conn.status in [200, 503]
+          end
+        end)
+
+      assert log =~ "RATE_LIMIT_RPM=abc is not a valid positive integer"
+    end
+  end
+
   describe "rate limiting" do
     setup do
       if :ets.whereis(:symphony_rate_limiter) != :undefined do

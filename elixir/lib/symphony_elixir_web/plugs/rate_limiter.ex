@@ -16,6 +16,8 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter do
 
   @behaviour Plug
 
+  require Logger
+
   import Plug.Conn
 
   @default_rpm 100
@@ -74,8 +76,19 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter do
 
   defp rpm_from_env do
     case System.get_env("RATE_LIMIT_RPM") do
-      nil -> @default_rpm
-      val -> String.to_integer(val)
+      nil ->
+        @default_rpm
+
+      val ->
+        case Integer.parse(val) do
+          {rpm, ""} when rpm > 0 ->
+            rpm
+
+          _ ->
+            Logger.warning("RATE_LIMIT_RPM=#{val} is not a valid positive integer, falling back to #{@default_rpm}")
+
+            @default_rpm
+        end
     end
   end
 end
