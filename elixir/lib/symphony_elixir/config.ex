@@ -515,7 +515,9 @@ defmodule SymphonyElixir.Config do
   defp require_linear_project do
     case tracker_kind() do
       "linear" ->
-        if is_binary(linear_project_slug()) do
+        slug = linear_project_slug()
+
+        if is_binary(slug) and byte_size(slug) > 0 do
           :ok
         else
           {:error, :missing_linear_project_slug}
