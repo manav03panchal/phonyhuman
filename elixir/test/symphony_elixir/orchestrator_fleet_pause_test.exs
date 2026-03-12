@@ -246,6 +246,134 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
     end
   end
 
+  describe "non-rate-limit turn failures" do
+    test "turn_failed with non-rate-limit error does NOT increment consecutive_limit_failures" do
+      orchestrator_name = Module.concat(__MODULE__, :NonRateLimitOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: Process.exit(pid, :normal)
+      end)
+
+      issue_id = "issue-non-rl"
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "MT-400",
+        title: "Non-rate-limit failure test",
+        description: "Test",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-400"
+      }
+
+      initial_state = :sys.get_state(pid)
+
+      running_entry = %{
+        pid: self(),
+        ref: make_ref(),
+        identifier: issue.identifier,
+        issue: issue,
+        session_id: nil,
+        turn_count: 0,
+        last_agent_message: nil,
+        last_agent_timestamp: nil,
+        last_agent_event: nil,
+        agent_app_server_pid: nil,
+        agent_input_tokens: 0,
+        agent_output_tokens: 0,
+        agent_total_tokens: 0,
+        agent_last_reported_input_tokens: 0,
+        agent_last_reported_output_tokens: 0,
+        agent_last_reported_total_tokens: 0,
+        retry_attempt: 0,
+        started_at: DateTime.utc_now()
+      }
+
+      state_with_issue = %{initial_state | running: Map.put(initial_state.running, issue_id, running_entry)}
+      :sys.replace_state(pid, fn _ -> state_with_issue end)
+
+      # Send a turn_failed with a non-rate-limit error type (e.g. tool_failure)
+      send(
+        pid,
+        {:agent_worker_update, issue_id,
+         %{
+           event: :turn_failed,
+           timestamp: DateTime.utc_now(),
+           error_type: "tool_failure",
+           is_global: false
+         }}
+      )
+
+      Process.sleep(50)
+
+      state = :sys.get_state(pid)
+      assert state.consecutive_limit_failures == 0
+      assert state.fleet_paused_until == nil
+    end
+
+    test "turn_failed with nil error_type does NOT increment consecutive_limit_failures" do
+      orchestrator_name = Module.concat(__MODULE__, :NilErrorTypeOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: Process.exit(pid, :normal)
+      end)
+
+      issue_id = "issue-nil-err"
+
+      issue = %Issue{
+        id: issue_id,
+        identifier: "MT-401",
+        title: "Nil error_type failure test",
+        description: "Test",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-401"
+      }
+
+      initial_state = :sys.get_state(pid)
+
+      running_entry = %{
+        pid: self(),
+        ref: make_ref(),
+        identifier: issue.identifier,
+        issue: issue,
+        session_id: nil,
+        turn_count: 0,
+        last_agent_message: nil,
+        last_agent_timestamp: nil,
+        last_agent_event: nil,
+        agent_app_server_pid: nil,
+        agent_input_tokens: 0,
+        agent_output_tokens: 0,
+        agent_total_tokens: 0,
+        agent_last_reported_input_tokens: 0,
+        agent_last_reported_output_tokens: 0,
+        agent_last_reported_total_tokens: 0,
+        retry_attempt: 0,
+        started_at: DateTime.utc_now()
+      }
+
+      state_with_issue = %{initial_state | running: Map.put(initial_state.running, issue_id, running_entry)}
+      :sys.replace_state(pid, fn _ -> state_with_issue end)
+
+      # Send a turn_failed with no error_type
+      send(
+        pid,
+        {:agent_worker_update, issue_id,
+         %{
+           event: :turn_failed,
+           timestamp: DateTime.utc_now()
+         }}
+      )
+
+      Process.sleep(50)
+
+      state = :sys.get_state(pid)
+      assert state.consecutive_limit_failures == 0
+      assert state.fleet_paused_until == nil
+    end
+  end
+
   describe "can_dispatch? during fleet pause" do
     test "fleet_paused? returns true when paused_until is in the future" do
       state = base_state(%{fleet_paused_until: DateTime.add(DateTime.utc_now(), 300, :second)})
