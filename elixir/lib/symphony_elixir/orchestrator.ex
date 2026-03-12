@@ -15,6 +15,9 @@ defmodule SymphonyElixir.Orchestrator do
   @call_timeout 15_000
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
+  # 24 hours — entries older than this are pruned from completed/claimed maps.
+  @completed_ttl_ms 24 * 60 * 60 * 1_000
+  @claimed_ttl_ms 24 * 60 * 60 * 1_000
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_agent_totals %{
@@ -45,8 +48,8 @@ defmodule SymphonyElixir.Orchestrator do
       :next_poll_due_at_ms,
       :poll_check_in_progress,
       running: %{},
-      completed: MapSet.new(),
-      claimed: MapSet.new(),
+      completed: %{},
+      claimed: %{},
       retry_attempts: %{},
       agent_totals: nil,
       agent_rate_limits: nil,
@@ -114,6 +117,7 @@ defmodule SymphonyElixir.Orchestrator do
     else
       state = refresh_runtime_config(state)
       state = maybe_dispatch(state)
+      state = prune_stale_entries(state)
       now_ms = System.monotonic_time(:millisecond)
       next_poll_due_at_ms = now_ms + state.poll_interval_ms
       :ok = schedule_tick(state.poll_interval_ms)
@@ -367,6 +371,12 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @doc false
+  @spec prune_stale_entries_for_test(term()) :: term()
+  def prune_stale_entries_for_test(%State{} = state) do
+    prune_stale_entries(state)
+  end
+
+  @doc false
   @spec sort_issues_for_dispatch_for_test([Issue.t()]) :: [Issue.t()]
   def sort_issues_for_dispatch_for_test(issues) when is_list(issues) do
     sort_issues_for_dispatch(issues)
@@ -440,7 +450,7 @@ defmodule SymphonyElixir.Orchestrator do
         %{
           state
           | running: Map.delete(state.running, issue_id),
-            claimed: MapSet.delete(state.claimed, issue_id),
+            claimed: Map.delete(state.claimed, issue_id),
             retry_attempts: Map.delete(state.retry_attempts, issue_id)
         }
 
@@ -564,7 +574,7 @@ defmodule SymphonyElixir.Orchestrator do
     can_dispatch?(state) and
       candidate_issue?(issue, active_states, terminal_states) and
       !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
-      !MapSet.member?(claimed, issue.id) and
+      !Map.has_key?(claimed, issue.id) and
       !Map.has_key?(running, issue.id) and
       available_slots(state) > 0 and
       state_slots_available?(issue, running)
@@ -732,7 +742,7 @@ defmodule SymphonyElixir.Orchestrator do
         %{
           state
           | running: running,
-            claimed: MapSet.put(state.claimed, issue.id),
+            claimed: Map.put(state.claimed, issue.id, DateTime.utc_now()),
             retry_attempts: Map.delete(state.retry_attempts, issue.id)
         }
 
@@ -770,7 +780,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp complete_issue(%State{} = state, issue_id) do
     %{
       state
-      | completed: MapSet.put(state.completed, issue_id),
+      | completed: Map.put(state.completed, issue_id, DateTime.utc_now()),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
@@ -916,7 +926,25 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp release_issue_claim(%State{} = state, issue_id) do
-    %{state | claimed: MapSet.delete(state.claimed, issue_id)}
+    %{state | claimed: Map.delete(state.claimed, issue_id)}
+  end
+
+  defp prune_stale_entries(%State{} = state) do
+    now = DateTime.utc_now()
+    %{state | completed: prune_map(state.completed, now, @completed_ttl_ms), claimed: prune_claimed(state, now)}
+  end
+
+  defp prune_map(map, now, ttl_ms) when is_map(map) do
+    Map.filter(map, fn {_id, inserted_at} ->
+      is_struct(inserted_at, DateTime) and DateTime.diff(now, inserted_at, :millisecond) < ttl_ms
+    end)
+  end
+
+  defp prune_claimed(%State{claimed: claimed, running: running, retry_attempts: retries}, now) do
+    Map.filter(claimed, fn {id, inserted_at} ->
+      Map.has_key?(running, id) or Map.has_key?(retries, id) or
+        (is_struct(inserted_at, DateTime) and DateTime.diff(now, inserted_at, :millisecond) < @claimed_ttl_ms)
+    end)
   end
 
   defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do
@@ -1670,7 +1698,7 @@ defmodule SymphonyElixir.Orchestrator do
         %{
           state
           | running: running,
-            claimed: MapSet.put(state.claimed, issue.id),
+            claimed: Map.put(state.claimed, issue.id, DateTime.utc_now()),
             retry_attempts: Map.delete(state.retry_attempts, issue.id),
             fleet_probe_active: true
         }
