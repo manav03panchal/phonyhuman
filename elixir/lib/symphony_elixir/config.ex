@@ -37,6 +37,7 @@ defmodule SymphonyElixir.Config do
   @default_agent_turn_timeout_ms 3_600_000
   @default_agent_read_timeout_ms 5_000
   @default_agent_stall_timeout_ms 300_000
+  @min_agent_stall_timeout_ms 30_000
   @default_shutdown_timeout_ms 60_000
   @default_fleet_pause_default_ms 1_800_000
   @default_fleet_pause_max_ms 14_400_000
@@ -398,11 +399,11 @@ defmodule SymphonyElixir.Config do
     get_in(validated_workflow_options(), [:agent_server, :read_timeout_ms])
   end
 
-  @spec agent_stall_timeout_ms() :: non_neg_integer()
+  @spec agent_stall_timeout_ms() :: pos_integer() | :disabled
   def agent_stall_timeout_ms do
     validated_workflow_options()
     |> get_in([:agent_server, :stall_timeout_ms])
-    |> max(0)
+    |> clamp_stall_timeout()
   end
 
   @spec agent_mcp_servers() :: map() | nil
@@ -929,6 +930,22 @@ defmodule SymphonyElixir.Config do
       "excludeSlashTmp" => false
     }
   end
+
+  defp clamp_stall_timeout(0), do: :disabled
+
+  defp clamp_stall_timeout(ms) when is_integer(ms) and ms < 0 do
+    Logger.warning("agent_stall_timeout_ms is negative (#{ms}), treating as disabled")
+
+    :disabled
+  end
+
+  defp clamp_stall_timeout(ms) when is_integer(ms) and ms < @min_agent_stall_timeout_ms do
+    Logger.warning("agent_stall_timeout_ms #{ms} is below minimum #{@min_agent_stall_timeout_ms}, clamping to minimum")
+
+    @min_agent_stall_timeout_ms
+  end
+
+  defp clamp_stall_timeout(ms) when is_integer(ms), do: ms
 
   defp normalize_issue_state(state_name) when is_binary(state_name) do
     state_name

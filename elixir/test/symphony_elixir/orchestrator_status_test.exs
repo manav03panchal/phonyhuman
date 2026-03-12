@@ -898,7 +898,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   test "orchestrator restarts stalled workers with retry backoff" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_api_token: nil,
-      agent_stall_timeout_ms: 1_000
+      agent_stall_timeout_ms: 30_000
     )
 
     issue_id = "issue-stall"
@@ -918,7 +918,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         end
       end)
 
-    stale_activity_at = DateTime.add(DateTime.utc_now(), -5, :second)
+    stale_activity_at = DateTime.add(DateTime.utc_now(), -60, :second)
     initial_state = :sys.get_state(pid)
 
     running_entry = %{
