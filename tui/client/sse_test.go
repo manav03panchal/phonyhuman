@@ -211,6 +211,93 @@ func TestSubscribeSSE_CloseStopsSubscription(t *testing.T) {
 	}
 }
 
+func TestSSE_IdleTimeoutTriggersReconnect(t *testing.T) {
+	// Server accepts SSE but sends nothing after headers, simulating a dead connection.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		flusher.Flush()
+		// Hold connection open until client disconnects.
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel()
+
+	sub := &SSESubscription{
+		url:         server.URL + eventsPath,
+		httpClient:  &http.Client{},
+		events:      make(chan SSEEvent, 16),
+		ctx:         connCtx,
+		cancel:      connCancel,
+		idleTimeout: 200 * time.Millisecond,
+	}
+
+	start := time.Now()
+	err := sub.connect()
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from idle timeout, got nil")
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("connect took %v, expected ~200ms idle timeout", elapsed)
+	}
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("connect returned too fast (%v), idle timeout may not have fired", elapsed)
+	}
+}
+
+func TestSSE_ParentContextCancelsGoroutine(t *testing.T) {
+	// Server holds SSE connection open with periodic heartbeats.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		for {
+			fmt.Fprint(w, ": heartbeat\n\n")
+			flusher.Flush()
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	}))
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	sub := c.SubscribeSSE(ctx)
+
+	// Cancel the parent context — this should terminate the SSE goroutine.
+	cancel()
+
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case _, ok := <-sub.Events():
+			if !ok {
+				return // channel closed — goroutine terminated as expected
+			}
+		case <-timer.C:
+			t.Fatal("SSE goroutine did not terminate after parent context cancellation")
+		}
+	}
+}
+
 func TestParseStateEvent_Valid(t *testing.T) {
 	data := `{"generated_at":"2026-03-08T12:00:00Z","fleet_status":"running","running":[],"retrying":[],"counts":{"running":0,"retrying":0}}`
 	state, err := ParseStateEvent(data)
