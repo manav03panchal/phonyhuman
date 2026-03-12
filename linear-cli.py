@@ -17,6 +17,7 @@ Usage:
 
 import json
 import os
+import re
 import sys
 import urllib.request
 import urllib.error
@@ -53,12 +54,25 @@ def die(msg):
     sys.exit(1)
 
 
+_TEAM_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*$")
+
+
 def parse_identifier(identifier):
-    """Parse 'HUM-5' into ('HUM', 5). Returns None if it's a UUID."""
+    """Parse 'HUM-5' into ('HUM', 5). Returns None if it's a UUID.
+
+    Validates team_key matches [A-Z][A-Z0-9]* (uppercase letters/digits,
+    starting with a letter).
+    """
     if "-" in identifier:
         parts = identifier.rsplit("-", 1)
         if len(parts) == 2 and parts[1].isdigit():
-            return parts[0], int(parts[1])
+            team_key = parts[0]
+            if not _TEAM_KEY_RE.match(team_key):
+                die(
+                    f"Invalid team key '{team_key}' in identifier '{identifier}'. "
+                    "Team keys must be uppercase letters and digits (e.g. 'HUM', 'ENG2')."
+                )
+            return team_key, int(parts[1])
     return None
 
 
@@ -113,11 +127,44 @@ def graphql(query, variables=None):
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
+            data = json.loads(resp.read().decode())
+            # Surface GraphQL-level errors
+            gql_errors = data.get("errors")
+            if gql_errors:
+                messages = "; ".join(
+                    e.get("message", str(e)) for e in gql_errors
+                )
+                extensions = gql_errors[0].get("extensions", {})
+                error_code = extensions.get("code", "")
+                if error_code == "AUTHENTICATION_ERROR":
+                    die(
+                        f"Authentication failed: {messages}. "
+                        "Check that LINEAR_API_KEY is valid."
+                    )
+                if error_code == "RATELIMITED":
+                    die(f"Rate limited (GraphQL): {messages}")
+                die(f"GraphQL error: {messages}")
+            return data
     except urllib.error.HTTPError as e:
-        die(f"HTTP {e.code}: {e.read().decode()[:500]}")
-    except Exception as e:
-        die(str(e))
+        body = e.read().decode("utf-8", errors="replace")[:500]
+        if e.code == 401:
+            die(
+                "Authentication failed (HTTP 401). "
+                "Check that LINEAR_API_KEY is set and valid."
+            )
+        if e.code == 429:
+            retry_after = e.headers.get("Retry-After", "")
+            msg = "Rate limited (HTTP 429)."
+            if retry_after:
+                msg += f" Retry after {retry_after} seconds."
+            if body:
+                msg += f" Response: {body}"
+            die(msg)
+        die(f"HTTP {e.code}: {body}")
+    except urllib.error.URLError as e:
+        die(f"Network error: {e.reason}")
+    except TimeoutError:
+        die("Request timed out after 30 seconds.")
 
 
 def cmd_comment(issue_id, body):
