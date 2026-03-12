@@ -70,9 +70,9 @@ defmodule SymphonyElixir.LogRedactorTest do
     end
 
     test "redacts Authorization header tuples in inspected output" do
-      inspected = ~s({"Authorization", "lin_api_secret123"})
+      inspected = ~s({"Authorization", "lin_api_test"})
       result = LogRedactor.redact(inspected)
-      refute result =~ "lin_api_secret123"
+      refute result =~ "lin_api_test"
       assert result =~ "[REDACTED]"
     end
 
