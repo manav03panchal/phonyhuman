@@ -24,6 +24,10 @@ defmodule SymphonyElixirWeb.Router do
     plug(SymphonyElixirWeb.Plugs.RateLimiter)
   end
 
+  pipeline :api_auth do
+    plug(SymphonyElixirWeb.Plugs.BearerAuth)
+  end
+
   scope "/", SymphonyElixirWeb do
     get("/dashboard.css", StaticAssetController, :dashboard_css)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
@@ -44,15 +48,25 @@ defmodule SymphonyElixirWeb.Router do
 
     get("/api/v1/state", ObservabilityApiController, :state)
     get("/api/v1/events", EventsController, :events)
+  end
+
+  # Authenticated POST endpoints — require Bearer token when SYMPHONY_API_KEY is set
+  scope "/", SymphonyElixirWeb do
+    pipe_through([:api, :api_auth])
+
+    post("/api/v1/refresh", ObservabilityApiController, :refresh)
+    post("/api/v1/fleet/pause", ObservabilityApiController, :pause)
+    post("/api/v1/fleet/resume", ObservabilityApiController, :resume)
+  end
+
+  scope "/", SymphonyElixirWeb do
+    pipe_through(:api)
 
     match(:*, "/", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/state", ObservabilityApiController, :method_not_allowed)
     match(:*, "/api/v1/events", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/refresh", ObservabilityApiController, :refresh)
     match(:*, "/api/v1/refresh", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/fleet/pause", ObservabilityApiController, :pause)
     match(:*, "/api/v1/fleet/pause", ObservabilityApiController, :method_not_allowed)
-    post("/api/v1/fleet/resume", ObservabilityApiController, :resume)
     match(:*, "/api/v1/fleet/resume", ObservabilityApiController, :method_not_allowed)
     get("/api/v1/:issue_identifier", ObservabilityApiController, :issue)
     match(:*, "/api/v1/:issue_identifier", ObservabilityApiController, :method_not_allowed)
