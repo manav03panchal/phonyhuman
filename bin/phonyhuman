@@ -449,7 +449,7 @@ cmd_init() {
 
 [linear]
 api_key = ""                  # Linear personal API token (lin_api_...)
-                              # Can also use LINEAR_API_KEY env var
+                              # Can also use LINEAR_API_KEY env var instead
 project_slug = ""             # From the project URL: linear.app/team/project/<SLUG>
 
 # Optional: customize which Linear states phonyhuman watches
