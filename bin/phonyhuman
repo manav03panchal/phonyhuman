@@ -156,6 +156,81 @@ find_elixir() {
     return 1
 }
 
+# Find PID(s) listening on a given TCP port using a portable fallback chain.
+# Usage: find_pid_on_port PORT
+# Prints space-separated PIDs to stdout. Returns 0 if any found, 1 otherwise.
+find_pid_on_port() {
+    local port="$1"
+    local pids=""
+
+    # 1. lsof — available on macOS by default, most full Linux installs
+    if command -v lsof &>/dev/null; then
+        pids=$(lsof -ti:"$port" 2>/dev/null || true)
+        if [[ -n "$pids" ]]; then echo "$pids"; return 0; fi
+    fi
+
+    # 2. fuser — common on Linux (util-linux / psmisc)
+    if command -v fuser &>/dev/null; then
+        pids=$(fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' || true)
+        if [[ -n "$pids" ]]; then echo "$pids"; return 0; fi
+    fi
+
+    # 3. ss — modern Linux (iproute2)
+    if command -v ss &>/dev/null; then
+        pids=$(ss -tlnp "sport = :$port" 2>/dev/null \
+            | grep -oP 'pid=\K[0-9]+' || true)
+        if [[ -n "$pids" ]]; then echo "$pids"; return 0; fi
+    fi
+
+    # 4. netstat — fallback on older Linux / macOS
+    if command -v netstat &>/dev/null; then
+        pids=$(netstat -tlnp 2>/dev/null \
+            | awk -v p="$port" '$4 ~ ":"p"$" {split($7,a,"/"); if(a[1]~/^[0-9]+$/) print a[1]}' || true)
+        if [[ -n "$pids" ]]; then echo "$pids"; return 0; fi
+    fi
+
+    return 1
+}
+
+# Kill process(es) on a port and verify the port is freed.
+# Usage: kill_and_verify_port_free PORT
+# Returns 0 if port is free after kill, 1 if port remains occupied.
+kill_and_verify_port_free() {
+    local port="$1"
+    local max_retries=5
+    local attempt=0
+
+    local pids
+    pids=$(find_pid_on_port "$port" 2>/dev/null) || return 0  # nothing listening
+
+    dim "  Stopping existing process on port ${port}..."; echo ""
+
+    # Send SIGTERM to all PIDs on the port
+    local pid
+    for pid in $pids; do
+        kill "$pid" 2>/dev/null || true
+    done
+
+    # Verify port is freed, retrying up to max_retries times
+    while (( attempt < max_retries )); do
+        sleep 1
+        if ! find_pid_on_port "$port" &>/dev/null; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        if (( attempt == 2 )); then
+            # Escalate to SIGKILL after 2 failed SIGTERM waits
+            pids=$(find_pid_on_port "$port" 2>/dev/null) || return 0
+            for pid in $pids; do
+                kill -9 "$pid" 2>/dev/null || true
+            done
+        fi
+    done
+
+    red "  Could not free port ${port} after ${max_retries} attempts."; echo ""
+    return 1
+}
+
 # Ensure Erlang runtime is available; auto-install via mise if possible
 ensure_runtime() {
     if find_erlang; then return 0; fi
@@ -778,8 +853,17 @@ The LINEAR_API_KEY is already in your environment.
 """
 
 # Build active/terminal state YAML lines
+def yaml_quote(value):
+    """Quote a string for safe YAML embedding (handles :, #, {, etc.)."""
+    special_chars = (':', '#', '{', '}', '[', ']', ',', '&', '*', '?', '|',
+                     '-', '<', '>', '=', '!', '%', '@', '`', '"', "'")
+    s = str(value)
+    if any(c in s for c in special_chars) or s != s.strip() or not s:
+        return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    return s
+
 def yaml_list(items):
-    return "\n".join(f"    - {s}" for s in items)
+    return "\n".join(f"    - {yaml_quote(s)}" for s in items)
 
 before_run     = repo.get("before_run", "")
 after_run      = repo.get("after_run", "")
@@ -814,7 +898,7 @@ if before_remove:
 workflow = f"""---
 tracker:
   kind: linear
-  project_slug: "{slug}"
+  project_slug: {yaml_quote(slug)}
   active_states:
 {yaml_list(active_states)}
   terminal_states:
@@ -822,13 +906,13 @@ tracker:
 polling:
   interval_ms: {poll_ms}
 workspace:
-  root: {ws_root}
+  root: {yaml_quote(ws_root)}
 hooks:
 {hooks_section}agent:
   max_concurrent_agents: {max_agents}
   max_turns: {max_turns}
 agent_server:
-  command: "python3 {shim_path}"
+  command: {yaml_quote("python3 " + shim_path)}
   approval_policy: never
   thread_sandbox: workspace-write
   turn_sandbox_policy:
@@ -1040,13 +1124,11 @@ print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
     }
     trap cleanup EXIT INT TERM
 
-    # Kill any existing process on the port
-    local existing_pid
-    existing_pid=$(lsof -ti:"${port_flag}" 2>/dev/null || true)
-    if [[ -n "$existing_pid" ]]; then
-        dim "  Stopping existing process on port ${port_flag}..."; echo ""
-        kill "$existing_pid" 2>/dev/null || true
-        sleep 1
+    # Kill any existing process on the port (portable, with verify)
+    if find_pid_on_port "${port_flag}" &>/dev/null; then
+        if ! kill_and_verify_port_free "${port_flag}"; then
+            die "Port ${port_flag} is still in use and could not be freed."
+        fi
     fi
 
     # Verify escript is on PATH before backgrounding

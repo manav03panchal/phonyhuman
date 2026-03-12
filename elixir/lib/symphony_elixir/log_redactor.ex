@@ -17,6 +17,7 @@ defmodule SymphonyElixir.LogRedactor do
   # - Bearer tokens: Bearer <token>
   # - Query-string tokens: token=<value>
   # - Password fields: password=<value> or password: <value>
+  # - Authorization header tuples in inspected output: {"Authorization", "value"}
   @secret_pattern ~r/
     lin_api_\S+             |
     ghp_\S+                 |
@@ -25,7 +26,8 @@ defmodule SymphonyElixir.LogRedactor do
     Bearer\s+\S+            |
     token=\S+               |
     password=\S+            |
-    password:\s*\S+
+    password:\s*\S+         |
+    "[Aa]uthorization",\s*"[^"]*"
   /x
 
   @spec redact(String.t()) :: String.t()

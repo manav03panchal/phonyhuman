@@ -117,11 +117,37 @@ def execute_linear_graphql(arguments):
                 "success": not bool(errors),
                 "contentItems": [{"type": "inputText", "text": json.dumps(data, indent=2)}],
             }
-    except Exception as exc:
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:500]
+        if exc.code == 401:
+            msg = "Authentication failed (HTTP 401). Check that LINEAR_API_KEY is valid."
+        elif exc.code == 429:
+            retry_after = exc.headers.get("Retry-After", "")
+            msg = "Rate limited (HTTP 429)."
+            if retry_after:
+                msg += f" Retry after {retry_after} seconds."
+            if body:
+                msg += f" Response: {body}"
+        else:
+            msg = f"HTTP {exc.code}: {body}"
         return {
             "success": False,
             "contentItems": [{"type": "inputText", "text": json.dumps({
-                "error": {"message": f"Linear GraphQL request failed: {exc}"}
+                "error": {"message": msg}
+            })}],
+        }
+    except urllib.error.URLError as exc:
+        return {
+            "success": False,
+            "contentItems": [{"type": "inputText", "text": json.dumps({
+                "error": {"message": f"Network error: {exc.reason}"}
+            })}],
+        }
+    except TimeoutError:
+        return {
+            "success": False,
+            "contentItems": [{"type": "inputText", "text": json.dumps({
+                "error": {"message": "Linear GraphQL request timed out after 30 seconds."}
             })}],
         }
 

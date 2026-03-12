@@ -57,10 +57,23 @@ jobs:
           otp-version: "28"
           elixir-version: "1.19"
 
+      - name: Cache Elixir dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            elixir/deps
+            elixir/_build
+          key: elixir-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('elixir/mix.lock') }}
+          restore-keys: |
+            elixir-${{ runner.os }}-otp28-elixir1.19-
+
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.23"
+          cache-dependency-path: tui/go.sum
 
       - name: Build escript
         working-directory: elixir
@@ -81,6 +94,37 @@ jobs:
           cd tui && go build \
             -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
             -o ../bin/symphony-tui .
+
+      - name: Verify escript
+        working-directory: elixir
+        run: |
+          echo "Verifying escript binary..."
+          test -s bin/symphony || { echo "::error::Escript binary missing or empty"; exit 1; }
+          head -1 bin/symphony | grep -q escript || { echo "::error::Not a valid escript"; exit 1; }
+          echo "Escript verification passed"
+
+      - name: Verify TUI binary
+        run: |
+          echo "Verifying TUI binary..."
+          test -s bin/symphony-tui || { echo "::error::TUI binary missing or empty"; exit 1; }
+
+          FILE_INFO="$(file bin/symphony-tui)"
+          echo "Binary: $FILE_INFO"
+
+          case "${{ matrix.platform }}" in
+            linux-x86_64)
+              echo "$FILE_INFO" | grep -q "ELF.*x86-64" || { echo "::error::Expected Linux x86_64 binary"; exit 1; }
+              ./bin/symphony-tui --version
+              ;;
+            darwin-x86_64)
+              echo "$FILE_INFO" | grep -q "Mach-O.*x86_64" || { echo "::error::Expected macOS x86_64 binary"; exit 1; }
+              ;;
+            darwin-arm64)
+              echo "$FILE_INFO" | grep -q "Mach-O.*arm64" || { echo "::error::Expected macOS arm64 binary"; exit 1; }
+              ;;
+          esac
+
+          echo "TUI binary verification passed for ${{ matrix.platform }}"
 
       - name: Extract version
         id: version
