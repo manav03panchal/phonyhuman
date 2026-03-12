@@ -42,6 +42,9 @@ type pollTickMsg struct{}
 // tickMsg triggers countdown updates.
 type tickMsg time.Time
 
+// pollTimeout is the per-request timeout for HTTP state polls.
+const pollTimeout = 10 * time.Second
+
 // Model is the Bubble Tea model for the Symphony TUI dashboard.
 type Model struct {
 	client  *client.Client
@@ -54,6 +57,10 @@ type Model struct {
 	project types.ProjectInfo
 	panel   int // active panel index for tab switching
 
+	// Lifecycle context — cancelled on model teardown to stop SSE/poll goroutines.
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// SSE / polling state
 	state    *types.State
 	stateErr error
@@ -65,6 +72,7 @@ type Model struct {
 // It eagerly creates an SSE subscription so the pointer is shared across
 // Bubble Tea's value copies of the model.
 func New(c *client.Client) Model {
+	ctx, cancel := context.WithCancel(context.Background())
 	return Model{
 		client: c,
 		metrics: types.AgentMetrics{
@@ -74,8 +82,10 @@ func New(c *client.Client) Model {
 			DashboardURL: c.BaseURL(),
 			RefreshSec:   10,
 		},
+		ctx:    ctx,
+		cancel: cancel,
 		useSSE: true,
-		sseSub: c.SubscribeSSE(context.Background()),
+		sseSub: c.SubscribeSSE(ctx),
 	}
 }
 
@@ -172,6 +182,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "q", "ctrl+c":
+		m.cancel()
 		if m.sseSub != nil {
 			m.sseSub.Close()
 		}
@@ -294,10 +305,12 @@ func waitForSSE(sub *client.SSESubscription) tea.Cmd {
 	}
 }
 
-// pollState fetches state via HTTP GET.
+// pollState fetches state via HTTP GET with a bounded timeout.
 func (m Model) pollState() tea.Cmd {
 	return func() tea.Msg {
-		state, err := m.client.FetchState(context.Background())
+		ctx, cancel := context.WithTimeout(m.ctx, pollTimeout)
+		defer cancel()
+		state, err := m.client.FetchState(ctx)
 		return stateMsg{state: state, err: err}
 	}
 }
