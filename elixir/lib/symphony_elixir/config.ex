@@ -470,8 +470,9 @@ defmodule SymphonyElixir.Config do
          :ok <- require_linear_token(),
          :ok <- require_linear_project(),
          :ok <- require_valid_agent_runtime_settings(),
-         :ok <- require_agent_command() do
-      validate_hook_commands()
+         :ok <- require_agent_command(),
+         :ok <- validate_hook_commands() do
+      warn_state_limits_exceeding_global()
     end
   end
 
@@ -545,6 +546,19 @@ defmodule SymphonyElixir.Config do
     hooks = workspace_hooks()
     allow = hooks.allow_shell_hooks
     HookValidator.validate_all_hooks(hooks, allow)
+  end
+
+  defp warn_state_limits_exceeding_global do
+    global_max = max_concurrent_agents()
+    state_limits = get_in(validated_workflow_options(), [:agent, :max_concurrent_agents_by_state])
+
+    Enum.each(state_limits, fn {state, limit} ->
+      if limit > global_max do
+        Logger.warning("Per-state agent limit for #{inspect(state)} (#{limit}) exceeds global max_concurrent_agents (#{global_max})")
+      end
+    end)
+
+    :ok
   end
 
   defp validated_workflow_options do
