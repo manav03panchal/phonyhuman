@@ -18,16 +18,16 @@ func RenderHeader(width int) string {
 	banner := "S Y M P H O N Y"
 	subtitle := "Fleet Orchestrator Dashboard"
 
-	bannerRendered := bannerStyle.Width(min(width-6, 40)).Render(banner)
+	bannerRendered := bannerStyle.Width(min(max(0, width-6), 40)).Render(banner)
 	subtitleRendered := lipgloss.NewStyle().
 		Foreground(colorDimGray).
 		Italic(true).
 		Align(lipgloss.Center).
-		Width(min(width-6, 40)).
+		Width(min(max(0, width-6), 40)).
 		Render(subtitle)
 
 	content := lipgloss.JoinVertical(lipgloss.Center, bannerRendered, subtitleRendered)
-	bordered := bannerBorder.Width(min(width-4, 44)).Render(content)
+	bordered := bannerBorder.Width(min(max(0, width-4), 44)).Render(content)
 
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, bordered)
 }
@@ -75,7 +75,7 @@ func RenderMetricsPanel(m types.AgentMetrics, width int) string {
 		metricRowW("Errors", toolErrorStyle(m.ToolErrors), 14),
 	}
 
-	colWidth := (width - 8) / 2
+	colWidth := max(0, width-8) / 2
 	if colWidth < 20 {
 		colWidth = 20
 	}
@@ -111,7 +111,7 @@ func RenderMetricsPanel(m types.AgentMetrics, width int) string {
 	rightPanel := lipgloss.NewStyle().Width(colWidth).Render(rightCol)
 
 	grid := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
-	return panelBorder.Width(width - 4).Render(grid)
+	return panelBorder.Width(max(0, width-4)).Render(grid)
 }
 
 // RenderCompactMetrics renders a single-column metrics view for narrow terminals.
@@ -132,16 +132,23 @@ func RenderCompactMetrics(m types.AgentMetrics, width int) string {
 		metricRow("Tools", fmt.Sprintf("%d calls, %dms avg, %d err", m.ToolCalls, m.ToolAvgDurationMs, m.ToolErrors)),
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	return panelBorder.Width(width - 4).Render(content)
+	return panelBorder.Width(max(0, width-4)).Render(content)
 }
 
 // RenderRateLimits renders rate limit progress bars.
 func RenderRateLimits(limits []types.RateLimit, width int) string {
+	borderWidth := max(0, width-4)
+
 	if len(limits) == 0 {
-		return panelBorder.Width(width - 4).Render(
+		return panelBorder.Width(borderWidth).Render(
 			sectionTitle.Render("─ Rate Limits") + "\n" +
 				valueDim.Render("  No rate limit data"),
 		)
+	}
+
+	// Use compact layout for narrow terminals where full bar+stats won't fit
+	if width < 60 {
+		return renderCompactRateLimits(limits, borderWidth)
 	}
 
 	rows := []string{sectionTitle.Render("─ Rate Limits")}
@@ -202,7 +209,25 @@ func RenderRateLimits(limits []types.RateLimit, width int) string {
 		rows = append(rows, row)
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	return panelBorder.Width(width - 4).Render(content)
+	return panelBorder.Width(borderWidth).Render(content)
+}
+
+// renderCompactRateLimits renders a minimal rate limit view for narrow terminals.
+func renderCompactRateLimits(limits []types.RateLimit, borderWidth int) string {
+	rows := []string{sectionTitle.Render("─ Rate Limits")}
+	for _, rl := range limits {
+		pct := 0.0
+		if rl.Limit > 0 {
+			pct = float64(rl.Used) / float64(rl.Limit)
+		}
+		row := fmt.Sprintf("  %s %s",
+			labelStyle.Render(fmt.Sprintf("%-8s", rl.Name)),
+			rateLimitColor(pct).Render(fmt.Sprintf("%d/%d (%.0f%%)", rl.Used, rl.Limit, pct*100)),
+		)
+		rows = append(rows, row)
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	return panelBorder.Width(borderWidth).Render(content)
 }
 
 // RenderProjectInfo renders project URLs and refresh countdown.
@@ -214,7 +239,7 @@ func RenderProjectInfo(info types.ProjectInfo, width int) string {
 		metricRowW("Refresh", valueDim.Render(fmt.Sprintf("%ds", info.RefreshSec)), 14),
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	return panelBorder.Width(width - 4).Render(content)
+	return panelBorder.Width(max(0, width-4)).Render(content)
 }
 
 // RenderFooter renders keybinding hints.
@@ -291,6 +316,9 @@ func renderSparkline(data []float64) string {
 }
 
 func renderProgressBar(width int, pct float64) string {
+	if width <= 0 {
+		return ""
+	}
 	if pct > 1 {
 		pct = 1
 	}
@@ -362,9 +390,11 @@ var (
 func RenderBackoffQueue(state *types.State, width int) string {
 	title := sectionTitle.Render("─ Backoff Queue")
 
+	borderWidth := max(0, width-4)
+
 	if state == nil || len(state.Retrying) == 0 {
 		content := title + "\n" + valueDim.Render("  No queued retries")
-		return panelBorder.Width(width - 4).Render(content)
+		return panelBorder.Width(borderWidth).Render(content)
 	}
 
 	rows := []string{title}
@@ -373,7 +403,7 @@ func RenderBackoffQueue(state *types.State, width int) string {
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-	return panelBorder.Width(width - 4).Render(content)
+	return panelBorder.Width(borderWidth).Render(content)
 }
 
 func renderRetryRow(entry types.RetryEntry) string {
