@@ -246,8 +246,6 @@ func RenderProjectInfo(info types.ProjectInfo, width int) string {
 func RenderFooter(width int) string {
 	keys := []struct{ key, desc string }{
 		{"q", "quit"},
-		{"tab", "switch panels"},
-		{"↑↓", "scroll"},
 		{"p", "pause/resume"},
 	}
 
