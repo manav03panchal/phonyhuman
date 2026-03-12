@@ -29,7 +29,9 @@ defmodule SymphonyElixir.Orchestrator do
     cache_creation_tokens: 0,
     cost_usd: 0.0,
     model: nil,
-    tool_executions: [],
+    tool_calls: 0,
+    tool_duration_total_ms: 0,
+    tool_errors: 0,
     api_errors: 0,
     lines_changed: 0,
     commits_count: 0,
@@ -730,7 +732,9 @@ defmodule SymphonyElixir.Orchestrator do
             otel_cache_read_tokens: 0,
             otel_cache_creation_tokens: 0,
             otel_cost_usd: 0.0,
-            otel_tool_executions: [],
+            otel_tool_calls: 0,
+            otel_tool_duration_total_ms: 0,
+            otel_tool_errors: 0,
             otel_api_errors: 0,
             otel_lines_changed: 0,
             otel_commits_count: 0,
@@ -1105,7 +1109,9 @@ defmodule SymphonyElixir.Orchestrator do
           otel_cache_read_tokens: Map.get(metadata, :otel_cache_read_tokens, 0),
           otel_cache_creation_tokens: Map.get(metadata, :otel_cache_creation_tokens, 0),
           otel_cost_usd: Map.get(metadata, :otel_cost_usd, 0.0),
-          otel_tool_executions: Map.get(metadata, :otel_tool_executions, []),
+          otel_tool_calls: Map.get(metadata, :otel_tool_calls, 0),
+          otel_tool_duration_total_ms: Map.get(metadata, :otel_tool_duration_total_ms, 0),
+          otel_tool_errors: Map.get(metadata, :otel_tool_errors, 0),
           otel_api_errors: Map.get(metadata, :otel_api_errors, 0),
           otel_lines_changed: Map.get(metadata, :otel_lines_changed, 0),
           otel_commits_count: Map.get(metadata, :otel_commits_count, 0),
@@ -1301,7 +1307,9 @@ defmodule SymphonyElixir.Orchestrator do
           cache_creation_tokens: 0,
           cost_usd: 0.0,
           model: nil,
-          tool_executions: Map.get(running_entry, :otel_tool_executions, []),
+          tool_calls: Map.get(running_entry, :otel_tool_calls, 0),
+          tool_duration_total_ms: Map.get(running_entry, :otel_tool_duration_total_ms, 0),
+          tool_errors: Map.get(running_entry, :otel_tool_errors, 0),
           api_errors: Map.get(running_entry, :otel_api_errors, 0),
           lines_changed: Map.get(running_entry, :otel_lines_changed, 0),
           commits_count: Map.get(running_entry, :otel_commits_count, 0),
@@ -1686,7 +1694,9 @@ defmodule SymphonyElixir.Orchestrator do
             otel_cache_read_tokens: 0,
             otel_cache_creation_tokens: 0,
             otel_cost_usd: 0.0,
-            otel_tool_executions: [],
+            otel_tool_calls: 0,
+            otel_tool_duration_total_ms: 0,
+            otel_tool_errors: 0,
             otel_api_errors: 0,
             otel_lines_changed: 0,
             otel_commits_count: 0,
@@ -1758,8 +1768,15 @@ defmodule SymphonyElixir.Orchestrator do
     delta_model = Map.get(token_delta, :model)
     model = if delta_model, do: delta_model, else: Map.get(agent_totals, :model)
 
-    tool_executions =
-      Map.get(agent_totals, :tool_executions, []) ++ Map.get(token_delta, :tool_executions, [])
+    tool_calls =
+      Map.get(agent_totals, :tool_calls, 0) + Map.get(token_delta, :tool_calls, 0)
+
+    tool_duration_total_ms =
+      Map.get(agent_totals, :tool_duration_total_ms, 0) +
+        Map.get(token_delta, :tool_duration_total_ms, 0)
+
+    tool_errors =
+      Map.get(agent_totals, :tool_errors, 0) + Map.get(token_delta, :tool_errors, 0)
 
     api_errors =
       Map.get(agent_totals, :api_errors, 0) + Map.get(token_delta, :api_errors, 0)
@@ -1788,7 +1805,9 @@ defmodule SymphonyElixir.Orchestrator do
       cache_creation_tokens: max(0, cache_creation_tokens),
       cost_usd: max(0.0, cost_usd),
       model: model,
-      tool_executions: tool_executions,
+      tool_calls: max(0, tool_calls),
+      tool_duration_total_ms: max(0, tool_duration_total_ms),
+      tool_errors: max(0, tool_errors),
       api_errors: max(0, api_errors),
       lines_changed: max(0, lines_changed),
       commits_count: max(0, commits_count),
@@ -2247,24 +2266,22 @@ defmodule SymphonyElixir.Orchestrator do
   defp merge_otel_tool_executions(entry, metrics) do
     events = Map.get(metrics, :events, [])
 
-    tool_executions =
-      Enum.flat_map(events, fn
-        %{name: "claude_code.tool_result", attributes: attrs} when is_map(attrs) ->
-          [
-            %{
-              name: Map.get(attrs, "tool_name", "unknown"),
-              duration_ms: otel_numeric(Map.get(attrs, "duration_ms", 0)),
-              success: Map.get(attrs, "success", true)
-            }
-          ]
+    {count, duration_ms, errors} =
+      Enum.reduce(events, {0, 0, 0}, fn
+        %{name: "claude_code.tool_result", attributes: attrs}, {c, d, e} when is_map(attrs) ->
+          dur = otel_numeric(Map.get(attrs, "duration_ms", 0))
+          err = if Map.get(attrs, "success", true), do: 0, else: 1
+          {c + 1, d + dur, e + err}
 
-        _ ->
-          []
+        _, acc ->
+          acc
       end)
 
-    if tool_executions != [] do
-      existing = Map.get(entry, :otel_tool_executions, [])
-      Map.put(entry, :otel_tool_executions, existing ++ tool_executions)
+    if count > 0 do
+      entry
+      |> Map.update(:otel_tool_calls, count, &(&1 + count))
+      |> Map.update(:otel_tool_duration_total_ms, duration_ms, &(&1 + duration_ms))
+      |> Map.update(:otel_tool_errors, errors, &(&1 + errors))
     else
       entry
     end
