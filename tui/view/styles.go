@@ -110,4 +110,5 @@ var (
 	retryCountdownStyle  = lipgloss.NewStyle().Foreground(colorCyan)
 	retryErrorStyle      = lipgloss.NewStyle().Foreground(colorDim)
 	promptLabelStyle     = lipgloss.NewStyle().Foreground(colorYellow).Bold(true)
+	actionErrStyle       = lipgloss.NewStyle().Foreground(colorRed).Bold(true)
 )
