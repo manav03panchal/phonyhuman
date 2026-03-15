@@ -1444,7 +1444,7 @@ defmodule SymphonyElixir.Orchestrator do
           retry_after_ms
         )
 
-      error_type == "rate_limit" or event in [:turn_failed, "turn/failed"] ->
+      error_type == "rate_limit" ->
         state
         |> increment_consecutive_limit_failures()
         |> maybe_trigger_pattern_fleet_pause()

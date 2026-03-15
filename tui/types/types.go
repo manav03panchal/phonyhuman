@@ -137,9 +137,10 @@ type AgentMetrics struct {
 	CostUSD         float64
 	Model           string
 
-	RuntimeSeconds int
-	TPS            float64
-	TPSHistory     []float64 // sparkline data points
+	RuntimeSeconds   int       // wall clock since earliest agent
+	AgentTimeSeconds int       // sum of all agent elapsed times
+	TPS              float64
+	TPSHistory       []float64 // sparkline data points
 
 	LinesChanged int
 	Commits      int
@@ -208,18 +209,19 @@ func (s AgentStatus) StatusColor() string {
 // Agent is a display-oriented view model for the agents table component.
 // It is converted from AgentEntry by the table adapter layer.
 type Agent struct {
-	ID           string                 `json:"id"`
-	Stage        string                 `json:"stage"`
-	PID          string                 `json:"pid"`
-	StartedAt    time.Time              `json:"started_at"`
-	Turn         int                    `json:"turn"`
-	Tokens       int                    `json:"tokens"`
-	InputTokens  int                    `json:"input_tokens"`
-	OutputTokens int                    `json:"output_tokens"`
-	CostUSD      float64                `json:"cost_usd"`
-	SessionID    string                 `json:"session_id"`
-	Status       AgentStatus            `json:"status"`
-	LastEvent    map[string]interface{} `json:"last_event"`
+	ID              string      `json:"id"`
+	Stage           string      `json:"stage"`
+	StartedAt       time.Time   `json:"started_at"`
+	InputTokens     int         `json:"input_tokens"`
+	OutputTokens    int         `json:"output_tokens"`
+	CacheReadTokens int         `json:"cache_read_tokens"`
+	CostUSD         float64     `json:"cost_usd"`
+	Model           string      `json:"model"`
+	SessionID       string      `json:"session_id"`
+	Status          AgentStatus `json:"status"`
+	LastEventStr    string      `json:"last_event_str"`
+	ToolCalls       int         `json:"tool_calls"`
+	LinesChanged    int         `json:"lines_changed"`
 }
 
 // AgentsUpdatedMsg is a Bubble Tea message carrying fresh agent state.

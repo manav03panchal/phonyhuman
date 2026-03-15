@@ -113,15 +113,8 @@ defmodule SymphonyElixirWeb.Presenter do
       last_message: summarize_message(entry.last_agent_message),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_agent_timestamp),
-      model: Map.get(entry, :agent_model),
-      tokens: %{
-        input_tokens: entry.agent_input_tokens,
-        output_tokens: entry.agent_output_tokens,
-        total_tokens: entry.agent_total_tokens,
-        cache_read_tokens: Map.get(entry, :agent_cache_read_tokens, 0),
-        cache_hit_rate: cache_hit_rate(entry.agent_input_tokens, Map.get(entry, :agent_cache_read_tokens, 0)),
-        cost_usd: Map.get(entry, :agent_cost_usd, 0)
-      },
+      model: Map.get(entry, :agent_model) || Map.get(entry, :otel_model),
+      tokens: best_tokens(entry),
       lines_changed: Map.get(entry, :otel_lines_changed, 0),
       commits_count: Map.get(entry, :otel_commits_count, 0),
       prs_count: Map.get(entry, :otel_prs_count, 0),
@@ -129,6 +122,41 @@ defmodule SymphonyElixirWeb.Presenter do
       tool_avg_duration_ms: tool_avg_duration_ms,
       api_errors: Map.get(entry, :otel_api_errors, 0),
       active_time_seconds: Map.get(entry, :otel_active_time_seconds, 0)
+    }
+  end
+
+  # Merge agent server tokens with OTel tokens — prefer whichever has data.
+  # Agent server tokens arrive only at turn/completed; OTel arrives during execution.
+  defp best_tokens(entry) do
+    agent_in = entry.agent_input_tokens || 0
+    agent_out = entry.agent_output_tokens || 0
+    agent_total = entry.agent_total_tokens || 0
+    agent_cache = Map.get(entry, :agent_cache_read_tokens, 0)
+    agent_cost = Map.get(entry, :agent_cost_usd, 0)
+
+    otel_in = Map.get(entry, :otel_input_tokens, 0)
+    otel_out = Map.get(entry, :otel_output_tokens, 0)
+    otel_cache = Map.get(entry, :otel_cache_read_tokens, 0)
+    otel_cost = Map.get(entry, :otel_cost_usd, 0)
+
+    # Use whichever source has the higher total (OTel streams during execution,
+    # agent server only reports at turn completion)
+    {input, output, cache_read, cost} =
+      if otel_in + otel_out > agent_in + agent_out do
+        {otel_in, otel_out, otel_cache, otel_cost}
+      else
+        {agent_in, agent_out, agent_cache, agent_cost}
+      end
+
+    total = if input + output > agent_total, do: input + output, else: agent_total
+
+    %{
+      input_tokens: input,
+      output_tokens: output,
+      total_tokens: total,
+      cache_read_tokens: cache_read,
+      cache_hit_rate: cache_hit_rate(input, cache_read),
+      cost_usd: cost
     }
   end
 
@@ -210,7 +238,7 @@ defmodule SymphonyElixirWeb.Presenter do
     |> Map.put(:tool_avg_duration_ms, tool_avg_duration_ms)
     |> Map.put(:api_errors, Map.get(enriched, :api_errors, 0))
     |> Map.put(:active_time_seconds, Map.get(enriched, :active_time_seconds, 0))
-    |> Map.drop([:tool_duration_total_ms, :tool_errors])
+    |> Map.drop([:tool_duration_total_ms, :tool_errors, :tool_executions])
   end
 
   @doc false
