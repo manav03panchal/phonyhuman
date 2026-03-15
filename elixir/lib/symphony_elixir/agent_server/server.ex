@@ -193,12 +193,18 @@ defmodule SymphonyElixir.AgentServer.Server do
   end
 
   defp otel_env_vars do
-    endpoint = System.get_env("SYMPHONY_OTEL_ENDPOINT") || "http://127.0.0.1:4318"
+    # Port.open env: replaces the entire environment, so we must include
+    # all inherited vars plus our OTel additions.
+    base =
+      System.get_env()
+      |> Enum.map(fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
 
     if System.get_env("SYMPHONY_OTEL_DISABLED") == "1" do
-      []
+      base
     else
-      [
+      endpoint = System.get_env("SYMPHONY_OTEL_ENDPOINT") || "http://127.0.0.1:4318"
+
+      otel = [
         {~c"CLAUDE_CODE_ENABLE_TELEMETRY", ~c"1"},
         {~c"OTEL_METRICS_EXPORTER", ~c"otlp"},
         {~c"OTEL_LOGS_EXPORTER", ~c"otlp"},
@@ -207,6 +213,10 @@ defmodule SymphonyElixir.AgentServer.Server do
         {~c"OTEL_METRIC_EXPORT_INTERVAL", ~c"5000"},
         {~c"OTEL_LOGS_EXPORT_INTERVAL", ~c"2000"}
       ]
+
+      otel_keys = MapSet.new(Enum.map(otel, fn {k, _} -> k end))
+      filtered_base = Enum.reject(base, fn {k, _} -> MapSet.member?(otel_keys, k) end)
+      filtered_base ++ otel
     end
   end
 
