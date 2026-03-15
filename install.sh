@@ -312,6 +312,7 @@ if [ "$ALREADY_IN_PATH" = false ]; then
         local rc="$1"
         if [ -f "$rc" ]; then
             if ! grep -qF "$BIN_DIR" "$rc" 2>/dev/null; then
+                cp "$rc" "$rc.bak.phonyhuman"
                 echo "" >> "$rc"
                 echo "# phonyhuman" >> "$rc"
                 echo "$PATH_LINE" >> "$rc"
@@ -338,6 +339,7 @@ if [ "$ALREADY_IN_PATH" = false ]; then
             FISH_CONFIG="$HOME/.config/fish/config.fish"
             if [ -f "$FISH_CONFIG" ]; then
                 if ! grep -qF "$BIN_DIR" "$FISH_CONFIG" 2>/dev/null; then
+                    cp "$FISH_CONFIG" "$FISH_CONFIG.bak.phonyhuman"
                     echo "" >> "$FISH_CONFIG"
                     echo "# phonyhuman" >> "$FISH_CONFIG"
                     echo "set -gx PATH $BIN_DIR \$PATH" >> "$FISH_CONFIG"
@@ -370,6 +372,7 @@ case "$SHELL_NAME" in
         # Ensure completion dir is in fpath
         if [ -f "$HOME/.zshrc" ]; then
             if ! grep -qF "$COMP_DIR" "$HOME/.zshrc" 2>/dev/null; then
+                cp "$HOME/.zshrc" "$HOME/.zshrc.bak.phonyhuman"
                 echo "" >> "$HOME/.zshrc"
                 echo "# phonyhuman completions" >> "$HOME/.zshrc"
                 echo "fpath=($COMP_DIR \$fpath)" >> "$HOME/.zshrc"
