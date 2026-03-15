@@ -176,29 +176,38 @@ func fmtCost(cost float64) string {
 	return fmt.Sprintf("$%.2f", cost)
 }
 
-// wrapText breaks s into lines of at most maxW runes, splitting on spaces.
+// wrapText breaks s into lines of at most maxW runes, preserving existing
+// newlines and wrapping long lines on word boundaries.
 func wrapText(s string, maxW int) []string {
 	if maxW <= 0 {
 		return []string{s}
 	}
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return nil
-	}
-	var lines []string
-	line := words[0]
-	for _, w := range words[1:] {
-		if len([]rune(line))+1+len([]rune(w)) > maxW {
-			lines = append(lines, line)
-			line = w
-		} else {
-			line += " " + w
+	var out []string
+	for _, paragraph := range strings.Split(s, "\n") {
+		paragraph = strings.TrimRight(paragraph, " \t")
+		if paragraph == "" {
+			out = append(out, "")
+			continue
+		}
+		words := strings.Fields(paragraph)
+		if len(words) == 0 {
+			out = append(out, "")
+			continue
+		}
+		line := words[0]
+		for _, w := range words[1:] {
+			if len([]rune(line))+1+len([]rune(w)) > maxW {
+				out = append(out, line)
+				line = w
+			} else {
+				line += " " + w
+			}
+		}
+		if line != "" {
+			out = append(out, line)
 		}
 	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines
+	return out
 }
 
 func stateColor(state string) lipgloss.Style {
