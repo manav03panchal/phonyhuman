@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -233,12 +234,13 @@ func TestSSE_IdleTimeoutTriggersReconnect(t *testing.T) {
 	defer connCancel()
 
 	sub := &SSESubscription{
-		url:         server.URL + eventsPath,
-		httpClient:  &http.Client{},
-		events:      make(chan SSEEvent, 16),
-		ctx:         connCtx,
-		cancel:      connCancel,
-		idleTimeout: 200 * time.Millisecond,
+		url:            server.URL + eventsPath,
+		httpClient:     &http.Client{},
+		events:         make(chan SSEEvent, 16),
+		ctx:            connCtx,
+		cancel:         connCancel,
+		idleTimeout:    200 * time.Millisecond,
+		connectTimeout: 10 * time.Second,
 	}
 
 	start := time.Now()
@@ -295,6 +297,66 @@ func TestSSE_ParentContextCancelsGoroutine(t *testing.T) {
 		case <-timer.C:
 			t.Fatal("SSE goroutine did not terminate after parent context cancellation")
 		}
+	}
+}
+
+func TestSSE_ConnectTimeoutFires(t *testing.T) {
+	// Create a TCP listener that accepts connections but never sends any data,
+	// simulating a server that hangs after the TCP handshake.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create listener: %v", err)
+	}
+	defer ln.Close()
+
+	// Accept connections in the background but hold them open silently.
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// Hold connection open — never write anything.
+			go func(c net.Conn) {
+				<-time.After(30 * time.Second)
+				c.Close()
+			}(conn)
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel()
+
+	connectTimeout := 300 * time.Millisecond
+	sub := &SSESubscription{
+		url: "http://" + ln.Addr().String() + eventsPath,
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout: connectTimeout,
+				}).DialContext,
+				ResponseHeaderTimeout: connectTimeout,
+			},
+		},
+		events:         make(chan SSEEvent, 16),
+		ctx:            connCtx,
+		cancel:         connCancel,
+		idleTimeout:    45 * time.Second,
+		connectTimeout: connectTimeout,
+	}
+
+	start := time.Now()
+	err = sub.connect()
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from connect timeout, got nil")
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("connect took %v, expected to fail within ~300ms", elapsed)
 	}
 }
 
