@@ -225,3 +225,58 @@ func TestTruncStr(t *testing.T) {
 		t.Errorf("truncStr short string = %q", got)
 	}
 }
+
+func TestTruncStr_MultiByte(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		max  int
+		want string
+	}{
+		{"CJK under limit", "日本語", 10, "日本語"},
+		{"CJK at limit", "日本語", 3, "日本語"},
+		{"CJK over limit truncates by rune", "日本語テスト", 5, "日本…"},
+		{"emoji under limit", "🎉🎊🎈", 10, "🎉🎊🎈"},
+		{"emoji at limit", "🎉🎊🎈🎆🎇", 5, "🎉🎊🎈🎆🎇"},
+		{"emoji over limit", "🎉🎊🎈🎆🎇🎯", 5, "🎉🎊…"},
+		{"mixed ASCII and CJK", "abc日本語def", 7, "abc日…"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := truncStr(c.in, c.max)
+			if got != c.want {
+				t.Errorf("truncStr(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
+			}
+		})
+	}
+}
+
+func TestTruncError_MultiByte(t *testing.T) {
+	// Build a string of 65 CJK runes (exceeds maxErrorLen=60).
+	long := ""
+	for i := 0; i < 65; i++ {
+		long += "漢"
+	}
+	got := truncError(long)
+	runes := []rune(got)
+	// Should be 59 漢 + 1 ellipsis = 60 runes.
+	if len(runes) != maxErrorLen {
+		t.Errorf("truncError(65 CJK runes): got %d runes, want %d", len(runes), maxErrorLen)
+	}
+	if runes[len(runes)-1] != '…' {
+		t.Errorf("truncError: last rune = %q, want '…'", runes[len(runes)-1])
+	}
+
+	// Short multi-byte string should pass through unchanged.
+	short := "エラー: 接続失敗"
+	if got := truncError(short); got != short {
+		t.Errorf("truncError(%q) = %q, want unchanged", short, got)
+	}
+
+	// Newlines in multi-byte string should be replaced.
+	withNL := "エラー\n接続失敗"
+	want := "エラー 接続失敗"
+	if got := truncError(withNL); got != want {
+		t.Errorf("truncError(%q) = %q, want %q", withNL, got, want)
+	}
+}
