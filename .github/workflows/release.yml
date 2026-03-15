@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Extract version
         id: version
@@ -23,7 +23,7 @@ jobs:
           echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        uses: softprops/action-gh-release@26e8ad27a09a225049a7075d7ec1caa2df6ff332 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: phonyhuman ${{ steps.version.outputs.tag }}
@@ -45,14 +45,14 @@ jobs:
           - goos: darwin
             goarch: amd64
             platform: darwin-x86_64
-            runner: macos-13
+            runner: macos-14
           - goos: darwin
             goarch: arm64
             platform: darwin-arm64
             runner: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Elixir + OTP 28
         uses: erlef/setup-beam@9d5b75ddfda22fb979d2270283237aef8aa68d6b # v1
@@ -61,7 +61,7 @@ jobs:
           elixir-version: "1.19"
 
       - name: Cache Elixir dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
         with:
           path: |
             ~/.hex
@@ -73,7 +73,7 @@ jobs:
             elixir-${{ runner.os }}-otp28-elixir1.19-
 
       - name: Set up Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
         with:
           go-version: "1.23"
           cache-dependency-path: tui/go.sum
@@ -121,7 +121,7 @@ jobs:
               ;;
             darwin-x86_64)
               echo "$FILE_INFO" | grep -q "Mach-O.*x86_64" || { echo "::error::Expected macOS x86_64 binary"; exit 1; }
-              ./bin/symphony-tui --version
+              # Cross-compiled binary — skip execution test on arm64 runner
               ;;
             darwin-arm64)
               echo "$FILE_INFO" | grep -q "Mach-O.*arm64" || { echo "::error::Expected macOS arm64 binary"; exit 1; }
@@ -200,13 +200,13 @@ jobs:
           fi
 
       - name: Upload checksum artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: checksum-${{ matrix.platform }}
           path: ${{ env.TARBALL }}.sha256
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        uses: softprops/action-gh-release@26e8ad27a09a225049a7075d7ec1caa2df6ff332 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           files: ${{ env.TARBALL }}
@@ -225,7 +225,7 @@ jobs:
           echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download checksum artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: checksum-*
           path: checksums
@@ -254,7 +254,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Upload checksums and signature
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        uses: softprops/action-gh-release@26e8ad27a09a225049a7075d7ec1caa2df6ff332 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
