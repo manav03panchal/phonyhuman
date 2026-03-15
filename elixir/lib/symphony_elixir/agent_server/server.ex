@@ -172,6 +172,8 @@ defmodule SymphonyElixir.AgentServer.Server do
     if is_nil(executable) do
       {:error, :bash_not_found}
     else
+      env = otel_env_vars()
+
       port =
         Port.open(
           {:spawn_executable, String.to_charlist(executable)},
@@ -181,11 +183,29 @@ defmodule SymphonyElixir.AgentServer.Server do
             :stderr_to_stdout,
             args: [~c"-lc", String.to_charlist(Config.agent_command())],
             cd: String.to_charlist(workspace),
+            env: env,
             line: @port_line_bytes
           ]
         )
 
       {:ok, port}
+    end
+  end
+
+  defp otel_env_vars do
+    endpoint = System.get_env("SYMPHONY_OTEL_ENDPOINT") || "http://127.0.0.1:4318"
+
+    if System.get_env("SYMPHONY_OTEL_DISABLED") == "1" do
+      []
+    else
+      [
+        {~c"CLAUDE_CODE_ENABLE_TELEMETRY", ~c"1"},
+        {~c"OTEL_METRICS_EXPORTER", ~c"otlp"},
+        {~c"OTEL_LOGS_EXPORTER", ~c"otlp"},
+        {~c"OTEL_EXPORTER_OTLP_ENDPOINT", String.to_charlist(endpoint)},
+        {~c"OTEL_METRIC_EXPORT_INTERVAL", ~c"5000"},
+        {~c"OTEL_LOGS_EXPORT_INTERVAL", ~c"2000"}
+      ]
     end
   end
 
