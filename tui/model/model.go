@@ -470,6 +470,8 @@ func (m *Model) syncMetrics() {
 			LastEventStr:    lastEvent,
 			ToolCalls:       e.ToolCalls,
 			LinesChanged:    e.LinesChanged,
+			CommitsCount:    e.CommitsCount,
+			PRsCount:        e.PRsCount,
 		})
 	}
 	m.metrics.AgentTimeSeconds = totalAgentSec

@@ -202,6 +202,7 @@ defmodule SymphonyElixir.AgentServer.Server do
         {~c"CLAUDE_CODE_ENABLE_TELEMETRY", ~c"1"},
         {~c"OTEL_METRICS_EXPORTER", ~c"otlp"},
         {~c"OTEL_LOGS_EXPORTER", ~c"otlp"},
+        {~c"OTEL_EXPORTER_OTLP_PROTOCOL", ~c"http/protobuf"},
         {~c"OTEL_EXPORTER_OTLP_ENDPOINT", String.to_charlist(endpoint)},
         {~c"OTEL_METRIC_EXPORT_INTERVAL", ~c"5000"},
         {~c"OTEL_LOGS_EXPORT_INTERVAL", ~c"2000"}

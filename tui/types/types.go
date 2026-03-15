@@ -236,6 +236,8 @@ type Agent struct {
 	LastEventStr    string      `json:"last_event_str"`
 	ToolCalls       int         `json:"tool_calls"`
 	LinesChanged    int         `json:"lines_changed"`
+	CommitsCount    int         `json:"commits_count"`
+	PRsCount        int         `json:"prs_count"`
 }
 
 // AgentsUpdatedMsg is a Bubble Tea message carrying fresh agent state.

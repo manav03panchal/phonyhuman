@@ -161,7 +161,7 @@ func RenderAgentsTable(agents []types.Agent, width, height int, selectedRow ...i
 			strings.Repeat("\n", max(0, height-height/3-1))
 	}
 
-	// Column definitions: ISSUE STATE AGE IN OUT CACHE COST MODEL LAST EVENT
+	// Column definitions: ISSUE STATE AGE IN OUT CACHE COST CODE LAST EVENT
 	cols := []col{
 		{"ISSUE", 14},
 		{"STATE", 13},
@@ -170,7 +170,7 @@ func RenderAgentsTable(agents []types.Agent, width, height int, selectedRow ...i
 		{"OUT", 9},
 		{"CACHE", 9},
 		{"COST", 8},
-		{"MODEL", 16},
+		{"CODE", 16},
 	}
 
 	// Last column gets remaining width
@@ -257,10 +257,12 @@ func agentRow(a types.Agent, cols []col, idx int, selected bool) string {
 		}
 	}
 
-	// Model — short display name
-	model := "—"
-	if a.Model != "" {
-		model = shortModel(a.Model)
+	// Code stats: +lines nc npr
+	codeStr := "—"
+	if a.LinesChanged > 0 || a.CommitsCount > 0 || a.PRsCount > 0 {
+		codeStr = fmt.Sprintf("+%d %dc %dpr", a.LinesChanged, a.CommitsCount, a.PRsCount)
+	} else if a.ToolCalls > 0 {
+		codeStr = fmt.Sprintf("%d tools", a.ToolCalls)
 	}
 
 	// Last event text
@@ -277,7 +279,7 @@ func agentRow(a types.Agent, cols []col, idx int, selected bool) string {
 		metricVal.Width(cols[4].width).Render(fmtCompactTokens(a.OutputTokens)),
 		metricVal.Width(cols[5].width).Render(fmtCompactTokens(a.CacheReadTokens)),
 		costStyle.Width(cols[6].width).Render(costStr),
-		cellDim.Width(cols[7].width).Render(truncStr(model, cols[7].width)),
+		metricVal.Width(cols[7].width).Render(truncStr(codeStr, cols[7].width)),
 		cellDim.Width(cols[8].width).Render(truncStr(lastEvent, cols[8].width)),
 	}
 

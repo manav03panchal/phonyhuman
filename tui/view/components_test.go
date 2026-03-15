@@ -138,7 +138,7 @@ func TestRenderAgentsTable_NoPanic(t *testing.T) {
 	// Content assertions at w=120: column headers and agent data.
 	got := RenderAgentsTable(agents, 120, 20)
 	for _, want := range []string{
-		"ISSUE", "STATE", "COST", "MODEL",
+		"ISSUE", "STATE", "COST", "CODE",
 		"HUM-59", "HUM-60",
 		"running", "error",
 		"$0.34", "$0.05",
