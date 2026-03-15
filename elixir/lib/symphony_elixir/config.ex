@@ -33,7 +33,7 @@ defmodule SymphonyElixir.Config do
   @default_max_concurrent_agents 10
   @default_agent_max_turns 20
   @default_max_retry_backoff_ms 300_000
-  @default_agent_command "codex app-server"
+  @default_agent_command "claude app-server"
   @default_agent_turn_timeout_ms 3_600_000
   @default_agent_read_timeout_ms 5_000
   @default_agent_stall_timeout_ms 300_000

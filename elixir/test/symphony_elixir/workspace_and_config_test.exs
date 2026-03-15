@@ -749,7 +749,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.linear_project_slug() == nil
     assert Config.workspace_root() == Path.join(System.tmp_dir!(), "symphony_workspaces")
     assert Config.max_concurrent_agents() == 10
-    assert Config.agent_command() == "codex app-server"
+    assert Config.agent_command() == "claude app-server"
 
     assert Config.agent_approval_policy() == %{
              "reject" => %{
