@@ -29,7 +29,6 @@ defmodule SymphonyElixirWeb.Endpoint do
     length: 1_000_000
   )
 
-  plug(Plug.MethodOverride)
   plug(Plug.Head)
   plug(Plug.Session, @session_options)
   plug(SymphonyElixirWeb.Router)
