@@ -918,6 +918,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
         end
       end)
 
+    worker_ref = Process.monitor(worker_pid)
     stale_activity_at = DateTime.add(DateTime.utc_now(), -60, :second)
     initial_state = :sys.get_state(pid)
 
@@ -940,7 +941,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     end)
 
     send(pid, :tick)
-    Process.sleep(100)
+    assert_receive {:DOWN, ^worker_ref, :process, ^worker_pid, _}, 5_000
     state = :sys.get_state(pid)
 
     refute Process.alive?(worker_pid)
@@ -1168,7 +1169,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       if System.monotonic_time(:millisecond) >= deadline_ms do
         flunk("timed out waiting for orchestrator snapshot state: #{inspect(snapshot)}")
       else
-        Process.sleep(5)
+        :sys.get_state(pid)
         do_wait_for_snapshot(pid, predicate, deadline_ms)
       end
     end
