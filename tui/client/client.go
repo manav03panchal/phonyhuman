@@ -181,6 +181,10 @@ func (c *Client) doPost(ctx context.Context, path string, body []byte) error {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, respBody)
 	}
+	// Drain the response body so the underlying TCP connection can be reused
+	// for keep-alive. Per net/http docs, the body must be fully read before
+	// closing to enable connection reuse.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
 

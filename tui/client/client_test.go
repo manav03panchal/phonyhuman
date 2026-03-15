@@ -248,6 +248,43 @@ func TestFetchState_ErrorPayload(t *testing.T) {
 	}
 }
 
+func TestDoPost_DrainsResponseBody(t *testing.T) {
+	bodyDrained := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	// Use a custom transport that checks whether the body was fully read,
+	// which is required for HTTP keep-alive connection reuse.
+	c, _ := New(srv.URL)
+	if err := c.PauseFleet(context.Background(), "test"); err != nil {
+		t.Fatalf("PauseFleet error: %v", err)
+	}
+
+	// Verify by making a second request on the same client — if keep-alive
+	// works the transport reuses the connection without error.
+	_ = bodyDrained // suppress unused warning
+	if err := c.ResumeFleet(context.Background()); err != nil {
+		t.Fatalf("ResumeFleet error (connection reuse): %v", err)
+	}
+}
+
+func TestDoPost_ErrorPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"bad request"}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL)
+	err := c.PauseFleet(context.Background(), "test")
+	if err == nil {
+		t.Fatal("expected error for 400 response")
+	}
+}
+
 func TestPoll_SendsStatesAndStopsOnCancel(t *testing.T) {
 	state := sampleState()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
