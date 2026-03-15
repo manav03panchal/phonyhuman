@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -256,7 +257,7 @@ func (e *TransientError) Error() string { return e.Err.Error() }
 func (e *TransientError) Unwrap() error { return e.Err }
 
 func isTransient(err error) bool {
-	_, ok := err.(*TransientError)
-	return ok
+	var target *TransientError
+	return errors.As(err, &target)
 }
 

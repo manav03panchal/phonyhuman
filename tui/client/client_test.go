@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -333,6 +334,29 @@ func TestPoll_ContextCancelledImmediately(t *testing.T) {
 		// Poll returned as expected
 	case <-time.After(2 * time.Second):
 		t.Fatal("Poll did not return after context cancellation")
+	}
+}
+
+func TestIsTransient_WrappedError(t *testing.T) {
+	base := &TransientError{Err: fmt.Errorf("connection refused")}
+	wrapped := fmt.Errorf("fetch failed: %w", base)
+
+	if !isTransient(wrapped) {
+		t.Error("isTransient should detect a wrapped TransientError")
+	}
+}
+
+func TestIsTransient_DirectError(t *testing.T) {
+	err := &TransientError{Err: fmt.Errorf("timeout")}
+	if !isTransient(err) {
+		t.Error("isTransient should detect a direct TransientError")
+	}
+}
+
+func TestIsTransient_NonTransient(t *testing.T) {
+	err := fmt.Errorf("permanent failure")
+	if isTransient(err) {
+		t.Error("isTransient should return false for non-TransientError")
 	}
 }
 
