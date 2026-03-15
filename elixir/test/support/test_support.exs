@@ -109,7 +109,7 @@ defmodule SymphonyElixir.TestSupport do
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
           shutdown_timeout_ms: 60_000,
-          agent_command: "codex app-server",
+          agent_command: "claude app-server",
           agent_approval_policy: %{reject: %{sandbox_approval: true, rules: true, mcp_elicitations: true}},
           agent_thread_sandbox: "workspace-write",
           agent_turn_sandbox_policy: nil,
