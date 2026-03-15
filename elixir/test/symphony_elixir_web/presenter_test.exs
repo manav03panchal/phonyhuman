@@ -454,4 +454,43 @@ defmodule SymphonyElixirWeb.PresenterTest do
       assert entry.tokens.cache_read_tokens == 0
     end
   end
+
+  describe "issue_payload/3" do
+    test "does not include workspace path in response" do
+      pid =
+        start_mock(%{
+          running: [
+            %{
+              issue_id: "issue-sec",
+              identifier: "MT-SEC",
+              state: "In Progress",
+              session_id: "sess-sec",
+              agent_app_server_pid: nil,
+              agent_input_tokens: 100,
+              agent_output_tokens: 50,
+              agent_total_tokens: 150,
+              turn_count: 1,
+              started_at: DateTime.utc_now(),
+              last_agent_timestamp: nil,
+              last_agent_message: nil,
+              last_agent_event: nil,
+              runtime_seconds: 10
+            }
+          ],
+          retrying: [],
+          agent_totals: %{
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            seconds_running: 10
+          },
+          rate_limits: nil
+        })
+
+      {:ok, payload} = Presenter.issue_payload("MT-SEC", pid, 5_000)
+
+      refute Map.has_key?(payload, :workspace)
+      assert payload.issue_identifier == "MT-SEC"
+    end
+  end
 end
