@@ -126,8 +126,12 @@ defmodule SymphonyElixir.Workspace do
     Path.join(Config.workspace_root(), safe_id)
   end
 
+  @max_identifier_length 200
+
   defp safe_identifier(identifier) do
-    String.replace(identifier || "issue", ~r/[^a-zA-Z0-9._-]/, "_")
+    (identifier || "issue")
+    |> String.replace(~r/[^a-zA-Z0-9._-]/, "_")
+    |> String.slice(0, @max_identifier_length)
   end
 
   defp clean_tmp_artifacts(workspace) do
