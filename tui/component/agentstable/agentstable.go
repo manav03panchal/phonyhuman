@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/humancorp/symphony/tui/humanize"
 	"github.com/humancorp/symphony/tui/types"
 )
 
@@ -21,7 +20,7 @@ import (
 const (
 	colWidthID      = 18
 	colWidthStage   = 10
-	colWidthAgeTurn = 10
+	colWidthAge = 10
 	colWidthIn      = 10
 	colWidthOut     = 10
 	colWidthCost    = 9
@@ -142,7 +141,7 @@ func columns() []table.Column {
 	return []table.Column{
 		{Title: "ID", Width: colWidthID},
 		{Title: "State", Width: colWidthStage},
-		{Title: "Age/Turn", Width: colWidthAgeTurn},
+		{Title: "Age", Width: colWidthAge},
 		{Title: "In", Width: colWidthIn},
 		{Title: "Out", Width: colWidthOut},
 		{Title: "Cost", Width: colWidthCost},
@@ -172,14 +171,16 @@ func sortedAgents(agents []types.Agent) []types.Agent {
 func agentRow(a types.Agent) table.Row {
 	dot := statusDot(a.Status)
 	age := formatAge(a.StartedAt)
-	ageTurn := fmt.Sprintf("%s/T%d", age, a.Turn)
 	session := truncateStr(a.SessionID, colWidthSession)
-	event := humanize.AgentMessage(a.LastEvent)
+	event := a.LastEventStr
+	if event == "" {
+		event = "—"
+	}
 
 	return table.Row{
 		dot + " " + truncateStr(a.ID, colWidthID-3),
 		a.Stage,
-		ageTurn,
+		age,
 		formatTokens(a.InputTokens),
 		formatTokens(a.OutputTokens),
 		formatCost(a.CostUSD),

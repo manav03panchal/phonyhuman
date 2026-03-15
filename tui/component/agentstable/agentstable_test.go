@@ -13,40 +13,24 @@ import (
 func sampleAgents() []types.Agent {
 	return []types.Agent{
 		{
-			ID:        "agent-bravo",
-			Stage:     "executing",
-			PID:       "12345",
-			StartedAt: time.Now().Add(-2 * time.Minute),
-			Turn:      3,
-			Tokens:    15000,
-			SessionID: "sess-abc",
-			Status:    types.StatusActive,
-			LastEvent: map[string]interface{}{
-				"message": map[string]interface{}{
-					"method": "turn/started",
-					"params": map[string]interface{}{
-						"turn": map[string]interface{}{"id": "t-5"},
-					},
-				},
-			},
+			ID:           "agent-bravo",
+			Stage:        "executing",
+			StartedAt:    time.Now().Add(-2 * time.Minute),
+			InputTokens:  10000,
+			OutputTokens: 5000,
+			SessionID:    "sess-abc",
+			Status:       types.StatusActive,
+			LastEventStr: "turn started",
 		},
 		{
-			ID:        "agent-alpha",
-			Stage:     "planning",
-			PID:       "12340",
-			StartedAt: time.Now().Add(-5 * time.Minute),
-			Turn:      1,
-			Tokens:    3500,
-			SessionID: "sess-xyz",
-			Status:    types.StatusTurnComplete,
-			LastEvent: map[string]interface{}{
-				"message": map[string]interface{}{
-					"method": "turn/completed",
-					"params": map[string]interface{}{
-						"turn": map[string]interface{}{"status": "success"},
-					},
-				},
-			},
+			ID:           "agent-alpha",
+			Stage:        "planning",
+			StartedAt:    time.Now().Add(-5 * time.Minute),
+			InputTokens:  2500,
+			OutputTokens: 1000,
+			SessionID:    "sess-xyz",
+			Status:       types.StatusTurnComplete,
+			LastEventStr: "turn completed",
 		},
 	}
 }
@@ -265,14 +249,9 @@ func TestFocusBlur(t *testing.T) {
 
 func TestHumanizedEventInRow(t *testing.T) {
 	a := types.Agent{
-		ID:    "ag-1",
-		Stage: "idle",
-		PID:   "999",
-		Turn:  1,
-		LastEvent: map[string]interface{}{
-			"event":   "turn_cancelled",
-			"message": map[string]interface{}{},
-		},
+		ID:           "ag-1",
+		Stage:        "idle",
+		LastEventStr: "turn cancelled",
 	}
 	row := agentRow(a)
 	lastEvent := row[7]

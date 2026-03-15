@@ -20,6 +20,7 @@ const (
 	promptNone promptMode = iota
 	promptConfirmPause
 	promptConfirmResume
+	promptConfirmQuit
 )
 
 // stateMsg carries the result of a state fetch (SSE or poll).
@@ -50,6 +51,7 @@ type Model struct {
 	client  *client.Client
 	width   int
 	height  int
+	cursor  int
 	stateAt time.Time
 	prompt  promptMode
 	metrics types.AgentMetrics
@@ -151,8 +153,10 @@ func (m Model) View() string {
 		State:        m.state,
 		StateAt:      m.stateAt,
 		Agents:       m.agents,
+		SelectedRow:  m.cursor,
 		PromptPause:  m.prompt == promptConfirmPause,
 		PromptResume: m.prompt == promptConfirmResume,
+		PromptQuit:   m.prompt == promptConfirmQuit,
 	})
 }
 
@@ -180,14 +184,40 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.prompt == promptConfirmQuit {
+		switch key {
+		case "y", "Y":
+			m.cancel()
+			if m.sseSub != nil {
+				m.sseSub.Close()
+			}
+			return m, tea.Quit
+		case "n", "N", "esc":
+			m.prompt = promptNone
+		}
+		return m, nil
+	}
 
 	switch key {
 	case "q", "ctrl+c":
-		m.cancel()
-		if m.sseSub != nil {
-			m.sseSub.Close()
+		m.prompt = promptConfirmQuit
+	case "j", "down":
+		if len(m.agents) > 0 {
+			m.cursor++
+			if m.cursor >= len(m.agents) {
+				m.cursor = len(m.agents) - 1
+			}
 		}
-		return m, tea.Quit
+	case "k", "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "enter":
+		if len(m.agents) > 0 && m.cursor < len(m.agents) {
+			return m, func() tea.Msg {
+				return types.AgentSelectedMsg{Agent: m.agents[m.cursor]}
+			}
+		}
 	case "p":
 		if m.state != nil && m.state.FleetStatus == "paused" {
 			m.prompt = promptConfirmResume
@@ -236,10 +266,27 @@ func (m *Model) syncMetrics() {
 		m.metrics.Model = ""
 	}
 
-	// Runtime & TPS
+	// Runtime — use wall clock elapsed from earliest agent when backend reports 0
 	m.metrics.RuntimeSeconds = t.SecondsRunning
-	if s.Counts.Running > 0 && t.SecondsRunning > 0 {
-		tps := float64(t.TotalTokens) / float64(t.SecondsRunning)
+	if t.SecondsRunning == 0 && s.Counts.Running > 0 {
+		var earliest time.Time
+		for _, e := range s.Running {
+			if e.StartedAt != nil {
+				if ts, err := time.Parse(time.RFC3339, *e.StartedAt); err == nil {
+					if earliest.IsZero() || ts.Before(earliest) {
+						earliest = ts
+					}
+				}
+			}
+		}
+		if !earliest.IsZero() {
+			m.metrics.RuntimeSeconds = int(time.Since(earliest).Seconds())
+		}
+	}
+
+	// TPS
+	if s.Counts.Running > 0 && m.metrics.RuntimeSeconds > 0 && t.TotalTokens > 0 {
+		tps := float64(t.TotalTokens) / float64(m.metrics.RuntimeSeconds)
 		m.metrics.TPS = tps
 		m.metrics.TPSHistory = append(m.metrics.TPSHistory, tps)
 		if len(m.metrics.TPSHistory) > 24 {
@@ -247,7 +294,6 @@ func (m *Model) syncMetrics() {
 		}
 	} else {
 		m.metrics.TPS = 0
-		m.metrics.TPSHistory = nil
 	}
 
 	// Code stats
@@ -280,31 +326,59 @@ func (m *Model) syncMetrics() {
 		}
 	}
 
-	// Per-agent display models
+	// Per-agent display models + compute total agent time
 	m.agents = m.agents[:0]
+	totalAgentSec := 0
 	for _, e := range s.Running {
 		started := time.Time{}
 		if e.StartedAt != nil {
-			if t, err := time.Parse(time.RFC3339, *e.StartedAt); err == nil {
-				started = t
+			if ts, err := time.Parse(time.RFC3339, *e.StartedAt); err == nil {
+				started = ts
 			}
 		}
 		status := types.StatusActive
 		if e.State == "error" {
 			status = types.StatusError
 		}
+		lastEvent := ""
+		if e.LastEvent != nil {
+			lastEvent = *e.LastEvent
+		} else if e.LastMessage != nil {
+			lastEvent = *e.LastMessage
+		}
+		model := ""
+		if e.Model != nil {
+			model = *e.Model
+		}
+
+		// Per-agent elapsed: use active_time_seconds if available, else wall clock
+		agentElapsed := e.ActiveTimeSeconds
+		if agentElapsed == 0 && !started.IsZero() {
+			agentElapsed = int(time.Since(started).Seconds())
+		}
+		totalAgentSec += agentElapsed
+
 		m.agents = append(m.agents, types.Agent{
-			ID:           e.IssueIdentifier,
-			Stage:        e.State,
-			StartedAt:    started,
-			Turn:         e.TurnCount,
-			Tokens:       e.Tokens.TotalTokens,
-			InputTokens:  e.Tokens.InputTokens,
-			OutputTokens: e.Tokens.OutputTokens,
-			CostUSD:      e.Tokens.CostUSD,
-			SessionID:    e.SessionID,
-			Status:       status,
+			ID:              e.IssueIdentifier,
+			Stage:           e.State,
+			StartedAt:       started,
+			InputTokens:     e.Tokens.InputTokens,
+			OutputTokens:    e.Tokens.OutputTokens,
+			CacheReadTokens: e.Tokens.CacheReadTokens,
+			CostUSD:         e.Tokens.CostUSD,
+			Model:           model,
+			SessionID:       e.SessionID,
+			Status:          status,
+			LastEventStr:    lastEvent,
+			ToolCalls:       e.ToolCalls,
+			LinesChanged:    e.LinesChanged,
 		})
+	}
+	m.metrics.AgentTimeSeconds = totalAgentSec
+
+	// Clamp cursor after agent list changes
+	if m.cursor >= len(m.agents) && len(m.agents) > 0 {
+		m.cursor = len(m.agents) - 1
 	}
 }
 

@@ -18,8 +18,10 @@ type DashboardData struct {
 	State        *types.State
 	StateAt      time.Time
 	Agents       []types.Agent
+	SelectedRow  int
 	PromptPause  bool
 	PromptResume bool
+	PromptQuit   bool
 }
 
 // RenderDashboard returns the full k9s-style dashboard view.
@@ -41,7 +43,9 @@ func RenderDashboard(d DashboardData) string {
 
 	// Prompt overlay (if active)
 	promptLine := ""
-	if d.PromptPause || d.PromptResume {
+	if d.PromptQuit {
+		promptLine = RenderQuitPrompt(w)
+	} else if d.PromptPause || d.PromptResume {
 		promptLine = RenderPrompt(d.PromptPause, w)
 	}
 
@@ -64,7 +68,7 @@ func RenderDashboard(d DashboardData) string {
 	}
 
 	// Main content: agents table fills remaining space
-	table := RenderAgentsTable(d.Agents, w, tableHeight)
+	table := RenderAgentsTable(d.Agents, w, tableHeight, d.SelectedRow)
 
 	// Assemble
 	var sections []string

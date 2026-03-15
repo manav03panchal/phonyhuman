@@ -51,8 +51,8 @@ func sampleState() *types.State {
 // sampleAgents returns per-agent data for testing.
 func sampleAgents() []types.Agent {
 	return []types.Agent{
-		{ID: "HUM-59", Stage: "running", Turn: 5, InputTokens: 50000, OutputTokens: 12000, CostUSD: 0.34, SessionID: "sess-abc-123", Status: types.StatusActive},
-		{ID: "HUM-60", Stage: "error", Turn: 2, InputTokens: 8000, OutputTokens: 1500, CostUSD: 0.05, SessionID: "sess-def-456", Status: types.StatusError},
+		{ID: "HUM-59", Stage: "running", InputTokens: 50000, OutputTokens: 12000, CacheReadTokens: 8000, CostUSD: 0.34, Model: "claude-sonnet-4-20250514", SessionID: "sess-abc-123", Status: types.StatusActive},
+		{ID: "HUM-60", Stage: "error", InputTokens: 8000, OutputTokens: 1500, CacheReadTokens: 2000, CostUSD: 0.05, Model: "claude-sonnet-4-20250514", SessionID: "sess-def-456", Status: types.StatusError},
 	}
 }
 

@@ -17,7 +17,7 @@ var sparkBlocks = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
 // RenderCrumbBar renders the k9s-style top bar: logo > context > resource.
 func RenderCrumbBar(m types.AgentMetrics, width int) string {
-	logo := logoStyle.Render("symphony")
+	logo := logoStyle.Render("🤪")
 	sep := crumbSep.Render(" 〉")
 	ctx := crumbStyle.Render("fleet")
 
@@ -33,8 +33,16 @@ func RenderCrumbBar(m types.AgentMetrics, width int) string {
 
 	left := logo + sep + ctx + sep + crumbStyle.Render("agents") + " " + badge + " " + agents
 
-	// Right side: uptime
-	right := cellDim.Render(fmt.Sprintf("⏱ %s", fmtDuration(m.RuntimeSeconds)))
+	// Right side: wall clock, total agent time, parallelism multiplier
+	wall := fmtDuration(m.RuntimeSeconds)
+	agentT := fmtDuration(m.AgentTimeSeconds)
+	var multi string
+	if m.RuntimeSeconds > 0 && m.AgentTimeSeconds > m.RuntimeSeconds {
+		x := float64(m.AgentTimeSeconds) / float64(m.RuntimeSeconds)
+		multi = metricValGreen.Render(fmt.Sprintf(" %.1fx", x))
+	}
+	right := cellDim.Render("Wall ") + metricVal.Render(wall) +
+		cellDim.Render(" Agent ") + metricVal.Render(agentT) + multi
 
 	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
@@ -136,7 +144,7 @@ func miniBar(width int, pct float64) string {
 // ─── Agents Table ───────────────────────────────────────────────────
 
 // RenderAgentsTable renders the main k9s-style table.
-func RenderAgentsTable(agents []types.Agent, width, height int) string {
+func RenderAgentsTable(agents []types.Agent, width, height int, selectedRow ...int) string {
 	if len(agents) == 0 {
 		empty := cellDim.Render("  No active agents. Waiting for issues...")
 		pad := ""
@@ -147,16 +155,16 @@ func RenderAgentsTable(agents []types.Agent, width, height int) string {
 			strings.Repeat("\n", max(0, height-height/3-1))
 	}
 
-	// Column definitions
+	// Column definitions: ISSUE STATE AGE IN OUT CACHE COST MODEL LAST EVENT
 	cols := []col{
-		{"ISSUE", 18},
-		{"STATE", 12},
-		{"AGE", 8},
-		{"TURN", 5},
-		{"IN", 10},
-		{"OUT", 10},
-		{"COST", 9},
-		{"SESSION", 16},
+		{"ISSUE", 14},
+		{"STATE", 13},
+		{"AGE", 7},
+		{"IN", 9},
+		{"OUT", 9},
+		{"CACHE", 9},
+		{"COST", 8},
+		{"MODEL", 16},
 	}
 
 	// Last column gets remaining width
@@ -177,13 +185,19 @@ func RenderAgentsTable(agents []types.Agent, width, height int) string {
 	}
 	header := lipgloss.JoinHorizontal(lipgloss.Top, hdrParts...)
 
+	// Resolve selected row index
+	selIdx := -1
+	if len(selectedRow) > 0 {
+		selIdx = selectedRow[0]
+	}
+
 	// Data rows
 	rows := []string{header}
 	for i, a := range agents {
 		if i >= height-1 { // leave room for header
 			break
 		}
-		rows = append(rows, agentRow(a, cols, i))
+		rows = append(rows, agentRow(a, cols, i, i == selIdx))
 	}
 
 	// Pad remaining height with empty lines
@@ -199,7 +213,7 @@ type col struct {
 	width int
 }
 
-func agentRow(a types.Agent, cols []col, idx int) string {
+func agentRow(a types.Agent, cols []col, idx int, selected bool) string {
 	// Status dot
 	dot := lipgloss.NewStyle().Foreground(lipgloss.Color(a.Status.StatusColor())).Render("●")
 	id := dot + " " + truncStr(a.ID, cols[0].width-3)
@@ -210,7 +224,7 @@ func agentRow(a types.Agent, cols []col, idx int) string {
 	// State with color
 	stateStyle := cellStyle
 	switch a.Stage {
-	case "running", "active":
+	case "running", "active", "in_progress":
 		stateStyle = lipgloss.NewStyle().Foreground(colorGreen)
 	case "error":
 		stateStyle = lipgloss.NewStyle().Foreground(colorRed)
@@ -232,19 +246,42 @@ func agentRow(a types.Agent, cols []col, idx int) string {
 		}
 	}
 
-	// Row background for alternating
-	_ = idx // available for alternating bg if desired
+	// Model — short display name
+	model := "—"
+	if a.Model != "" {
+		model = shortModel(a.Model)
+	}
+
+	// Last event text
+	lastEvent := "—"
+	if a.LastEventStr != "" {
+		lastEvent = a.LastEventStr
+	}
+
+	// Row background — alternating or selected
+	var bg lipgloss.Color
+	if selected {
+		bg = colorSelected
+	} else if idx%2 == 0 {
+		bg = colorRowEven
+	} else {
+		bg = colorRowOdd
+	}
+
+	withBg := func(s lipgloss.Style) lipgloss.Style {
+		return s.Background(bg)
+	}
 
 	parts := []string{
-		lipgloss.NewStyle().Width(cols[0].width).Render(id),
-		stateStyle.Width(cols[1].width).Render(a.Stage),
-		cellDim.Width(cols[2].width).Render(age),
-		cellStyle.Width(cols[3].width).Render(fmt.Sprintf("%d", a.Turn)),
-		metricVal.Width(cols[4].width).Render(fmtCompactTokens(a.InputTokens)),
-		metricVal.Width(cols[5].width).Render(fmtCompactTokens(a.OutputTokens)),
-		costStyle.Width(cols[6].width).Render(costStr),
-		cellDim.Width(cols[7].width).Render(truncStr(a.SessionID, cols[7].width)),
-		cellDim.Width(cols[8].width).Render(truncStr(a.SessionID, cols[8].width)), // placeholder for last event
+		withBg(lipgloss.NewStyle()).Width(cols[0].width).Render(id),
+		withBg(stateStyle).Width(cols[1].width).Render(a.Stage),
+		withBg(cellDim).Width(cols[2].width).Render(age),
+		withBg(metricVal).Width(cols[3].width).Render(fmtCompactTokens(a.InputTokens)),
+		withBg(metricVal).Width(cols[4].width).Render(fmtCompactTokens(a.OutputTokens)),
+		withBg(metricVal).Width(cols[5].width).Render(fmtCompactTokens(a.CacheReadTokens)),
+		withBg(costStyle).Width(cols[6].width).Render(costStr),
+		withBg(cellDim).Width(cols[7].width).Render(truncStr(model, cols[7].width)),
+		withBg(cellDim).Width(cols[8].width).Render(truncStr(lastEvent, cols[8].width)),
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
@@ -314,6 +351,11 @@ func RenderPrompt(isPause bool, width int) string {
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, promptStyle.Render(msg))
 }
 
+// RenderQuitPrompt renders the quit confirmation prompt.
+func RenderQuitPrompt(width int) string {
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, promptStyle.Render("Quit dashboard? (y/n)"))
+}
+
 // ─── Formatting Helpers ─────────────────────────────────────────────
 
 func renderSparkline(data []float64) string {
@@ -356,7 +398,7 @@ func fmtTokens(n int64) string {
 
 func fmtCompactTokens(tokens int) string {
 	if tokens == 0 {
-		return "—"
+		return "0"
 	}
 	if tokens >= 1_000_000 {
 		return fmt.Sprintf("%.1fM", float64(tokens)/1_000_000)
@@ -391,6 +433,29 @@ func fmtAge(started time.Time) string {
 		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
 	}
 	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// shortModel shortens model IDs like "claude-sonnet-4-20250514" → "sonnet-4".
+func shortModel(model string) string {
+	// Strip "claude-" prefix and date suffix
+	s := strings.TrimPrefix(model, "claude-")
+	// Remove date suffix like "-20250514"
+	if idx := strings.LastIndex(s, "-"); idx > 0 {
+		suffix := s[idx+1:]
+		if len(suffix) == 8 {
+			allDigits := true
+			for _, c := range suffix {
+				if c < '0' || c > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				s = s[:idx]
+			}
+		}
+	}
+	return s
 }
 
 func truncStr(s string, max int) string {
