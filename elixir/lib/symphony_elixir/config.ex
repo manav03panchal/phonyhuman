@@ -564,10 +564,35 @@ defmodule SymphonyElixir.Config do
     :ok
   end
 
+  @validated_opts_key :__symphony_config_validated_opts__
+
   defp validated_workflow_options do
-    workflow_config()
-    |> extract_workflow_options()
-    |> NimbleOptions.validate!(@workflow_options_schema)
+    config = workflow_config()
+    config_hash = :erlang.phash2(config)
+
+    case Process.get(@validated_opts_key) do
+      {^config_hash, opts} ->
+        opts
+
+      _ ->
+        opts =
+          config
+          |> extract_workflow_options()
+          |> NimbleOptions.validate!(@workflow_options_schema)
+
+        Process.put(@validated_opts_key, {config_hash, opts})
+        opts
+    end
+  end
+
+  @doc """
+  Clears the per-process validated workflow options cache.
+  Useful for tests that modify config mid-process.
+  """
+  @spec clear_validated_opts_cache() :: :ok
+  def clear_validated_opts_cache do
+    Process.delete(@validated_opts_key)
+    :ok
   end
 
   defp extract_workflow_options(config) do

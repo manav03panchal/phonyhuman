@@ -944,18 +944,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   end
 
   test "config supports per-state max concurrent agent overrides" do
-    workflow = """
-    ---
-    agent:
-      max_concurrent_agents: 10
-      max_concurrent_agents_by_state:
-        todo: 1
-        "In Progress": 4
-        "In Review": 2
-    ---
-    """
-
-    File.write!(Workflow.workflow_file_path(), workflow)
+    write_workflow_file!(Workflow.workflow_file_path(),
+      max_concurrent_agents: 10,
+      max_concurrent_agents_by_state: %{"todo" => 1, "In Progress" => 4, "In Review" => 2}
+    )
 
     assert Config.max_concurrent_agents() == 10
     assert Config.max_concurrent_agents_for_state("Todo") == 1

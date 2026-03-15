@@ -35,12 +35,18 @@ defmodule SymphonyElixir.Workflow do
 
   @spec current() :: {:ok, loaded_workflow()} | {:error, term()}
   def current do
-    case Process.whereis(WorkflowStore) do
-      pid when is_pid(pid) ->
-        WorkflowStore.current()
+    case WorkflowStore.current_cached() do
+      {:ok, workflow} ->
+        {:ok, workflow}
 
-      _ ->
-        load()
+      :miss ->
+        case Process.whereis(WorkflowStore) do
+          pid when is_pid(pid) ->
+            WorkflowStore.current()
+
+          _ ->
+            load()
+        end
     end
   end
 
