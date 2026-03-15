@@ -19,21 +19,22 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter.Sweeper do
   end
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
+    table = Keyword.get(opts, :table, @table)
     schedule_sweep()
-    {:ok, %{}}
+    {:ok, %{table: table}}
   end
 
   @impl true
-  def handle_info(:sweep, state) do
-    sweep()
+  def handle_info(:sweep, %{table: table} = state) do
+    sweep(table)
     schedule_sweep()
     {:noreply, state}
   end
 
-  @spec sweep() :: non_neg_integer()
-  def sweep do
-    if :ets.whereis(@table) == :undefined do
+  @spec sweep(atom()) :: non_neg_integer()
+  def sweep(table) do
+    if :ets.whereis(table) == :undefined do
       0
     else
       now = System.system_time(:second)
@@ -43,7 +44,7 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter.Sweeper do
       # Key format: {{namespace, ip, window_start}, count}
       match_spec = [{{:"$1", :_}, [{:<, {:element, 3, :"$1"}, cutoff}], [true]}]
 
-      :ets.select_delete(@table, match_spec)
+      :ets.select_delete(table, match_spec)
     end
   end
 

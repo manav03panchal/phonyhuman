@@ -29,7 +29,8 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter do
 
   @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, opts) do
-    ensure_table()
+    table = Keyword.get(opts, :table, @table)
+    ensure_table(table)
 
     rpm = Keyword.get_lazy(opts, :rpm, &rpm_from_env/0)
     namespace = Keyword.get(opts, :namespace, :default)
@@ -38,7 +39,7 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter do
     window_start = div(now, @window_seconds) * @window_seconds
     key = {namespace, ip, window_start}
 
-    count = :ets.update_counter(@table, key, {2, 1}, {key, 0})
+    count = :ets.update_counter(table, key, {2, 1}, {key, 0})
 
     if count > rpm do
       retry_after = max(window_start + @window_seconds - now, 1)
@@ -56,8 +57,8 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter do
     end
   end
 
-  defp ensure_table do
-    :ets.new(@table, [:public, :set, :named_table, {:write_concurrency, true}])
+  defp ensure_table(table) do
+    :ets.new(table, [:public, :set, :named_table, {:write_concurrency, true}])
   rescue
     ArgumentError -> :ok
   end
