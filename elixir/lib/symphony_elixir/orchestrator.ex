@@ -5,17 +5,14 @@ defmodule SymphonyElixir.Orchestrator do
 
   use GenServer
   require Logger
-  import Bitwise, only: [<<<: 2]
 
-  alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.{Config, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Linear.Issue
+  alias SymphonyElixir.Orchestrator.{Dispatch, FleetPause, Reconciliation, TokenAccounting}
 
   # Default timeout for GenServer.call operations (e.g. refresh, fleet control).
   # Matches the snapshot default; avoids the 5 s default under heavy load.
   @call_timeout 15_000
-  @min_fleet_pause_ms 1_000
-  @continuation_retry_delay_ms 1_000
-  @failure_retry_base_ms 10_000
   # 24 hours — entries older than this are pruned from completed/claimed maps.
   @completed_ttl_ms 24 * 60 * 60 * 1_000
   @claimed_ttl_ms 24 * 60 * 60 * 1_000
@@ -104,6 +101,8 @@ defmodule SymphonyElixir.Orchestrator do
     {:ok, state}
   end
 
+  # --- GenServer handle_info callbacks ---
+
   @impl true
   def handle_info(:tick, state) do
     if shutting_down?() do
@@ -146,7 +145,7 @@ defmodule SymphonyElixir.Orchestrator do
 
       issue_id ->
         {running_entry, state} = pop_running_entry(state, issue_id)
-        state = record_session_completion_totals(state, running_entry)
+        state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = running_entry_session_id(running_entry)
         is_probe = Map.get(running_entry, :is_fleet_probe, false)
 
@@ -157,14 +156,14 @@ defmodule SymphonyElixir.Orchestrator do
 
               state =
                 state
-                |> complete_issue(issue_id)
-                |> schedule_issue_retry(issue_id, 1, %{
+                |> Dispatch.complete_issue(issue_id)
+                |> Dispatch.schedule_issue_retry(issue_id, 1, %{
                   identifier: running_entry.identifier,
                   delay_type: :continuation
                 })
-                |> reset_consecutive_limit_failures()
+                |> FleetPause.reset_consecutive_limit_failures()
 
-              if is_probe, do: clear_fleet_pause(state), else: state
+              if is_probe, do: FleetPause.clear_fleet_pause(state), else: state
 
             _ ->
               Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
@@ -172,12 +171,12 @@ defmodule SymphonyElixir.Orchestrator do
               next_attempt = next_retry_attempt_from_running(running_entry)
 
               state =
-                schedule_issue_retry(state, issue_id, next_attempt, %{
+                Dispatch.schedule_issue_retry(state, issue_id, next_attempt, %{
                   identifier: running_entry.identifier,
                   error: "agent exited: #{inspect(reason)}"
                 })
 
-              if is_probe, do: extend_fleet_pause(state), else: state
+              if is_probe, do: FleetPause.extend_fleet_pause(state), else: state
           end
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
@@ -196,20 +195,20 @@ defmodule SymphonyElixir.Orchestrator do
         if Map.has_key?(state.completed, issue_id) do
           Logger.debug("Late agent_worker_update for completed issue_id=#{issue_id}; applying final token delta")
           dummy_entry = %{agent_last_reported_input_tokens: 0, agent_last_reported_output_tokens: 0, agent_last_reported_total_tokens: 0}
-          token_delta = extract_token_delta(dummy_entry, update)
-          {:noreply, apply_agent_token_delta(state, token_delta)}
+          token_delta = TokenAccounting.extract_token_delta(dummy_entry, update)
+          {:noreply, TokenAccounting.apply_agent_token_delta(state, token_delta)}
         else
           {:noreply, state}
         end
 
       running_entry ->
-        {updated_running_entry, token_delta} = integrate_agent_update(running_entry, update)
+        {updated_running_entry, token_delta} = TokenAccounting.integrate_agent_update(running_entry, update)
 
         state =
           state
-          |> apply_agent_token_delta(token_delta)
-          |> apply_agent_rate_limits(update)
-          |> classify_fleet_error(issue_id, update)
+          |> TokenAccounting.apply_agent_token_delta(token_delta)
+          |> TokenAccounting.apply_agent_rate_limits(update)
+          |> FleetPause.classify_fleet_error(issue_id, update)
 
         notify_dashboard()
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
@@ -219,49 +218,45 @@ defmodule SymphonyElixir.Orchestrator do
   def handle_info({:agent_worker_update, _issue_id, _update}, state), do: {:noreply, state}
 
   def handle_info({:retry_issue, issue_id}, state) do
-    result =
-      case pop_retry_attempt_state(state, issue_id) do
-        {:ok, attempt, metadata, state} -> handle_retry_issue(state, issue_id, attempt, metadata)
-        :missing -> {:noreply, state}
-      end
+    result = Dispatch.handle_retry(state, issue_id)
 
     notify_dashboard()
     result
   end
 
   def handle_info(:fleet_pause_expired, %State{} = state) do
-    if fleet_paused?(state) do
+    if FleetPause.fleet_paused?(state) do
       # Timer fired but pause was extended; reschedule
       {:noreply, state}
     else
       if state.fleet_probe_active do
         probe_timeout_ms = Config.fleet_probe_timeout_ms()
 
-        if probe_stalled?(state, probe_timeout_ms) do
+        if FleetPause.probe_stalled?(state, probe_timeout_ms) do
           Logger.warning("Fleet probe stalled after #{probe_timeout_ms}ms; force-killing and rescheduling")
-          state = force_kill_stalled_probe(state)
-          {:noreply, extend_fleet_pause(state)}
+          state = FleetPause.force_kill_stalled_probe(state)
+          {:noreply, FleetPause.extend_fleet_pause(state)}
         else
           Process.send_after(self(), :fleet_pause_expired, probe_timeout_ms)
           {:noreply, state}
         end
       else
         Logger.info("Fleet pause expired; dispatching probe agent")
-        {:noreply, dispatch_probe_agent(state)}
+        {:noreply, FleetPause.dispatch_probe_agent(state)}
       end
     end
   end
 
   def handle_info({:otel_metrics, session_id, metrics}, %{running: running} = state)
       when is_binary(session_id) and is_map(metrics) do
-    case find_issue_id_for_session(running, session_id) do
+    case TokenAccounting.find_issue_id_for_session(running, session_id) do
       nil ->
         Logger.warning("OTel metrics received for unknown session_id=#{session_id}; discarding")
         {:noreply, state}
 
       issue_id ->
         running_entry = Map.get(running, issue_id)
-        updated_entry = merge_otel_metrics(running_entry, metrics)
+        updated_entry = TokenAccounting.merge_otel_metrics(running_entry, metrics)
         state = %{state | running: Map.put(running, issue_id, updated_entry)}
         notify_dashboard()
         {:noreply, state}
@@ -277,13 +272,15 @@ defmodule SymphonyElixir.Orchestrator do
     {:noreply, state}
   end
 
+  # --- Dispatch coordinator ---
+
   defp maybe_dispatch(%State{} = state) do
-    state = reconcile_running_issues(state)
+    state = Reconciliation.reconcile_running_issues(state)
 
     with :ok <- Config.validate!(),
          {:ok, issues} <- Tracker.fetch_candidate_issues(),
-         true <- available_slots(state) > 0 do
-      choose_issues(issues, state)
+         true <- Dispatch.available_slots(state) > 0 do
+      Dispatch.choose_issues(issues, state)
     else
       {:error, :circuit_open} ->
         Logger.warning("Linear API circuit breaker is open; skipping poll cycle")
@@ -344,44 +341,22 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
-  defp reconcile_running_issues(%State{} = state) do
-    state = reconcile_stalled_running_issues(state)
-    running_ids = Map.keys(state.running)
-
-    if running_ids == [] do
-      state
-    else
-      case Tracker.fetch_issue_states_by_ids(running_ids) do
-        {:ok, issues} ->
-          reconcile_running_issue_states(
-            issues,
-            state,
-            active_state_set(),
-            terminal_state_set()
-          )
-
-        {:error, reason} ->
-          Logger.debug("Failed to refresh running issue states: #{inspect(reason)}; keeping active workers")
-
-          state
-      end
-    end
-  end
+  # --- Test helpers ---
 
   @doc false
   @spec reconcile_issue_states_for_test([Issue.t()], term()) :: term()
   def reconcile_issue_states_for_test(issues, %State{} = state) when is_list(issues) do
-    reconcile_running_issue_states(issues, state, active_state_set(), terminal_state_set())
+    Reconciliation.reconcile_running_issue_states(issues, state, Dispatch.active_state_set(), Dispatch.terminal_state_set())
   end
 
   def reconcile_issue_states_for_test(issues, state) when is_list(issues) do
-    reconcile_running_issue_states(issues, state, active_state_set(), terminal_state_set())
+    Reconciliation.reconcile_running_issue_states(issues, state, Dispatch.active_state_set(), Dispatch.terminal_state_set())
   end
 
   @doc false
   @spec should_dispatch_issue_for_test(Issue.t(), term()) :: boolean()
   def should_dispatch_issue_for_test(%Issue{} = issue, %State{} = state) do
-    should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
+    Dispatch.should_dispatch_issue?(issue, state, Dispatch.active_state_set(), Dispatch.terminal_state_set())
   end
 
   @doc false
@@ -389,7 +364,7 @@ defmodule SymphonyElixir.Orchestrator do
           {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
   def revalidate_issue_for_dispatch_for_test(%Issue{} = issue, issue_fetcher)
       when is_function(issue_fetcher, 1) do
-    revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_state_set())
+    Dispatch.revalidate_issue_for_dispatch(issue, issue_fetcher, Dispatch.terminal_state_set())
   end
 
   @doc false
@@ -401,664 +376,10 @@ defmodule SymphonyElixir.Orchestrator do
   @doc false
   @spec sort_issues_for_dispatch_for_test([Issue.t()]) :: [Issue.t()]
   def sort_issues_for_dispatch_for_test(issues) when is_list(issues) do
-    sort_issues_for_dispatch(issues)
+    Dispatch.sort_issues_for_dispatch(issues)
   end
 
-  defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
-
-  defp reconcile_running_issue_states([issue | rest], state, active_states, terminal_states) do
-    reconcile_running_issue_states(
-      rest,
-      reconcile_issue_state(issue, state, active_states, terminal_states),
-      active_states,
-      terminal_states
-    )
-  end
-
-  defp reconcile_issue_state(%Issue{} = issue, state, active_states, terminal_states) do
-    cond do
-      terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info("Issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
-
-        terminate_running_issue(state, issue.id, true)
-
-      !issue_routable_to_worker?(issue) ->
-        Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
-
-        terminate_running_issue(state, issue.id, false)
-
-      active_issue_state?(issue.state, active_states) ->
-        refresh_running_issue_state(state, issue)
-
-      true ->
-        Logger.info("Issue moved to non-active state: #{issue_context(issue)} state=#{issue.state}; stopping active agent")
-
-        terminate_running_issue(state, issue.id, false)
-    end
-  end
-
-  defp reconcile_issue_state(_issue, state, _active_states, _terminal_states), do: state
-
-  defp refresh_running_issue_state(%State{} = state, %Issue{} = issue) do
-    case Map.get(state.running, issue.id) do
-      %{issue: _} = running_entry ->
-        %{state | running: Map.put(state.running, issue.id, %{running_entry | issue: issue})}
-
-      _ ->
-        state
-    end
-  end
-
-  defp terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
-    case Map.get(state.running, issue_id) do
-      nil ->
-        release_issue_claim(state, issue_id)
-
-      %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
-        state = record_session_completion_totals(state, running_entry)
-
-        if cleanup_workspace do
-          cleanup_issue_workspace(identifier)
-        end
-
-        if is_pid(pid) do
-          terminate_task(pid)
-        end
-
-        if is_reference(ref) do
-          Process.demonitor(ref, [:flush])
-        end
-
-        %{
-          state
-          | running: Map.delete(state.running, issue_id),
-            claimed: Map.delete(state.claimed, issue_id),
-            retry_attempts: Map.delete(state.retry_attempts, issue_id)
-        }
-
-      _ ->
-        release_issue_claim(state, issue_id)
-    end
-  end
-
-  defp reconcile_stalled_running_issues(%State{} = state) do
-    case Config.agent_stall_timeout_ms() do
-      :disabled ->
-        state
-
-      timeout_ms ->
-        if map_size(state.running) == 0 do
-          state
-        else
-          now = DateTime.utc_now()
-
-          Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
-            restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
-          end)
-        end
-    end
-  end
-
-  defp restart_stalled_issue(state, issue_id, running_entry, now, timeout_ms) do
-    elapsed_ms = stall_elapsed_ms(running_entry, now)
-
-    if is_integer(elapsed_ms) and elapsed_ms > timeout_ms do
-      identifier = Map.get(running_entry, :identifier, issue_id)
-      session_id = running_entry_session_id(running_entry)
-
-      Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
-
-      next_attempt = next_retry_attempt_from_running(running_entry)
-
-      state
-      |> terminate_running_issue(issue_id, false)
-      |> schedule_issue_retry(issue_id, next_attempt, %{
-        identifier: identifier,
-        error: "stalled for #{elapsed_ms}ms without codex activity"
-      })
-    else
-      state
-    end
-  end
-
-  defp stall_elapsed_ms(running_entry, now) do
-    running_entry
-    |> last_activity_timestamp()
-    |> case do
-      %DateTime{} = timestamp ->
-        max(0, DateTime.diff(now, timestamp, :millisecond))
-
-      _ ->
-        nil
-    end
-  end
-
-  defp last_activity_timestamp(running_entry) when is_map(running_entry) do
-    Map.get(running_entry, :last_agent_timestamp) || Map.get(running_entry, :started_at)
-  end
-
-  defp last_activity_timestamp(_running_entry), do: nil
-
-  defp terminate_task(pid) when is_pid(pid) do
-    case SymphonyElixir.AgentSupervisor.stop_agent(pid) do
-      :ok ->
-        :ok
-
-      {:error, :not_found} ->
-        Process.exit(pid, :shutdown)
-    end
-  end
-
-  defp terminate_task(_pid), do: :ok
-
-  defp choose_issues(issues, state) do
-    active_states = active_state_set()
-    terminal_states = terminal_state_set()
-
-    issues
-    |> sort_issues_for_dispatch()
-    |> Enum.reduce(state, fn issue, state_acc ->
-      if should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
-        dispatch_issue(state_acc, issue)
-      else
-        state_acc
-      end
-    end)
-  end
-
-  defp sort_issues_for_dispatch(issues) when is_list(issues) do
-    Enum.sort_by(issues, fn
-      %Issue{} = issue ->
-        {priority_rank(issue.priority), issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
-
-      _ ->
-        {priority_rank(nil), issue_created_at_sort_key(nil), ""}
-    end)
-  end
-
-  defp priority_rank(priority) when is_integer(priority) and priority in 1..4, do: priority
-  defp priority_rank(_priority), do: 5
-
-  defp issue_created_at_sort_key(%Issue{created_at: %DateTime{} = created_at}) do
-    DateTime.to_unix(created_at, :microsecond)
-  end
-
-  defp issue_created_at_sort_key(%Issue{}), do: 9_223_372_036_854_775_807
-  defp issue_created_at_sort_key(_issue), do: 9_223_372_036_854_775_807
-
-  defp should_dispatch_issue?(
-         %Issue{} = issue,
-         %State{running: running, claimed: claimed} = state,
-         active_states,
-         terminal_states
-       ) do
-    can_dispatch?(state) and
-      candidate_issue?(issue, active_states, terminal_states) and
-      !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
-      !Map.has_key?(claimed, issue.id) and
-      !Map.has_key?(running, issue.id) and
-      available_slots(state) > 0 and
-      state_slots_available?(issue, running)
-  end
-
-  defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
-
-  defp state_slots_available?(%Issue{state: issue_state}, running) when is_map(running) do
-    limit = Config.max_concurrent_agents_for_state(issue_state)
-    used = running_issue_count_for_state(running, issue_state)
-    limit > used
-  end
-
-  defp state_slots_available?(_issue, _running), do: false
-
-  defp running_issue_count_for_state(running, issue_state) when is_map(running) do
-    normalized_state = normalize_issue_state(issue_state)
-
-    Enum.count(running, fn
-      {_id, %{issue: %Issue{state: state_name}}} ->
-        normalize_issue_state(state_name) == normalized_state
-
-      _ ->
-        false
-    end)
-  end
-
-  defp candidate_issue?(
-         %Issue{
-           id: id,
-           identifier: identifier,
-           title: title,
-           state: state_name
-         } = issue,
-         active_states,
-         terminal_states
-       )
-       when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
-    issue_routable_to_worker?(issue) and
-      active_issue_state?(state_name, active_states) and
-      !terminal_issue_state?(state_name, terminal_states)
-  end
-
-  defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
-
-  defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
-       when is_boolean(assigned_to_worker),
-       do: assigned_to_worker
-
-  defp issue_routable_to_worker?(_issue), do: true
-
-  defp todo_issue_blocked_by_non_terminal?(
-         %Issue{state: issue_state, blocked_by: blockers},
-         terminal_states
-       )
-       when is_binary(issue_state) and is_list(blockers) do
-    normalize_issue_state(issue_state) == "todo" and
-      Enum.any?(blockers, fn
-        %{state: blocker_state} when is_binary(blocker_state) ->
-          !terminal_issue_state?(blocker_state, terminal_states)
-
-        _ ->
-          true
-      end)
-  end
-
-  defp todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
-
-  defp terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do
-    MapSet.member?(terminal_states, normalize_issue_state(state_name))
-  end
-
-  defp terminal_issue_state?(_state_name, _terminal_states), do: false
-
-  defp active_issue_state?(state_name, active_states) when is_binary(state_name) do
-    MapSet.member?(active_states, normalize_issue_state(state_name))
-  end
-
-  defp normalize_issue_state(state_name) when is_binary(state_name) do
-    String.downcase(String.trim(state_name))
-  end
-
-  defp terminal_state_set do
-    Config.linear_terminal_states()
-    |> Enum.map(&normalize_issue_state/1)
-    |> Enum.filter(&(&1 != ""))
-    |> MapSet.new()
-  end
-
-  defp active_state_set do
-    Config.linear_active_states()
-    |> Enum.map(&normalize_issue_state/1)
-    |> Enum.filter(&(&1 != ""))
-    |> MapSet.new()
-  end
-
-  defp dispatch_issue(%State{} = state, issue, attempt \\ nil) do
-    case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, terminal_state_set()) do
-      {:ok, %Issue{} = refreshed_issue} ->
-        do_dispatch_issue(state, refreshed_issue, attempt)
-
-      {:skip, :missing} ->
-        Logger.info("Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}")
-        state
-
-      {:skip, %Issue{} = refreshed_issue} ->
-        Logger.info("Skipping stale dispatch after issue refresh: #{issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}")
-
-        state
-
-      {:error, reason} ->
-        Logger.warning("Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
-        state
-    end
-  end
-
-  defp do_dispatch_issue(%State{} = state, issue, attempt) do
-    recipient = self()
-
-    case SymphonyElixir.AgentSupervisor.start_agent(fn ->
-           AgentRunner.run(issue, recipient, attempt: attempt)
-         end) do
-      {:ok, pid} ->
-        ref = Process.monitor(pid)
-
-        Logger.info("Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)}")
-
-        running =
-          Map.put(state.running, issue.id, %{
-            pid: pid,
-            ref: ref,
-            identifier: issue.identifier,
-            issue: issue,
-            session_id: nil,
-            last_agent_message: nil,
-            last_agent_timestamp: nil,
-            last_agent_event: nil,
-            agent_app_server_pid: nil,
-            agent_input_tokens: 0,
-            agent_output_tokens: 0,
-            agent_total_tokens: 0,
-            agent_last_reported_input_tokens: 0,
-            agent_last_reported_output_tokens: 0,
-            agent_last_reported_total_tokens: 0,
-            agent_cache_read_tokens: 0,
-            agent_cache_creation_tokens: 0,
-            agent_cost_usd: 0.0,
-            agent_model: nil,
-            turn_count: 0,
-            retry_attempt: normalize_retry_attempt(attempt),
-            started_at: DateTime.utc_now(),
-            otel_input_tokens: 0,
-            otel_output_tokens: 0,
-            otel_cache_read_tokens: 0,
-            otel_cache_creation_tokens: 0,
-            otel_cost_usd: 0.0,
-            otel_tool_calls: 0,
-            otel_tool_duration_total_ms: 0,
-            otel_tool_errors: 0,
-            otel_api_errors: 0,
-            otel_lines_changed: 0,
-            otel_commits_count: 0,
-            otel_prs_count: 0,
-            otel_active_time_seconds: 0
-          })
-
-        %{
-          state
-          | running: running,
-            claimed: Map.put(state.claimed, issue.id, DateTime.utc_now()),
-            retry_attempts: Map.delete(state.retry_attempts, issue.id)
-        }
-
-      {:error, reason} ->
-        Logger.error("Unable to spawn agent for #{issue_context(issue)}: #{inspect(reason)}")
-        next_attempt = if is_integer(attempt), do: attempt + 1, else: nil
-
-        schedule_issue_retry(state, issue.id, next_attempt, %{
-          identifier: issue.identifier,
-          error: "failed to spawn agent: #{inspect(reason)}"
-        })
-    end
-  end
-
-  defp revalidate_issue_for_dispatch(%Issue{id: issue_id}, issue_fetcher, terminal_states)
-       when is_binary(issue_id) and is_function(issue_fetcher, 1) do
-    case issue_fetcher.([issue_id]) do
-      {:ok, [%Issue{} = refreshed_issue | _]} ->
-        if retry_candidate_issue?(refreshed_issue, terminal_states) do
-          {:ok, refreshed_issue}
-        else
-          {:skip, refreshed_issue}
-        end
-
-      {:ok, []} ->
-        {:skip, :missing}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
-
-  defp complete_issue(%State{} = state, issue_id) do
-    %{
-      state
-      | completed: Map.put(state.completed, issue_id, DateTime.utc_now()),
-        retry_attempts: Map.delete(state.retry_attempts, issue_id)
-    }
-  end
-
-  defp schedule_issue_retry(%State{} = state, issue_id, attempt, metadata)
-       when is_binary(issue_id) and is_map(metadata) do
-    previous_retry = Map.get(state.retry_attempts, issue_id, %{attempt: 0})
-    next_attempt = if is_integer(attempt), do: attempt, else: previous_retry.attempt + 1
-    delay_ms = retry_delay(next_attempt, metadata)
-    old_timer = Map.get(previous_retry, :timer_ref)
-    due_at_ms = System.monotonic_time(:millisecond) + delay_ms
-    identifier = pick_retry_identifier(issue_id, previous_retry, metadata)
-    error = pick_retry_error(previous_retry, metadata)
-
-    if is_reference(old_timer) do
-      Process.cancel_timer(old_timer)
-    end
-
-    timer_ref = Process.send_after(self(), {:retry_issue, issue_id}, delay_ms)
-
-    error_suffix = if is_binary(error), do: " error=#{error}", else: ""
-
-    Logger.warning("Retrying issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (attempt #{next_attempt})#{error_suffix}")
-
-    %{
-      state
-      | retry_attempts:
-          Map.put(state.retry_attempts, issue_id, %{
-            attempt: next_attempt,
-            timer_ref: timer_ref,
-            due_at_ms: due_at_ms,
-            identifier: identifier,
-            error: error,
-            last_attempt_at: DateTime.utc_now()
-          })
-    }
-  end
-
-  defp pop_retry_attempt_state(%State{} = state, issue_id) do
-    case Map.get(state.retry_attempts, issue_id) do
-      %{attempt: attempt} = retry_entry ->
-        metadata = %{
-          identifier: Map.get(retry_entry, :identifier),
-          error: Map.get(retry_entry, :error)
-        }
-
-        {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
-
-      _ ->
-        :missing
-    end
-  end
-
-  defp handle_retry_issue(%State{} = state, issue_id, attempt, metadata) do
-    case Tracker.fetch_candidate_issues() do
-      {:ok, issues} ->
-        issues
-        |> find_issue_by_id(issue_id)
-        |> handle_retry_issue_lookup(state, issue_id, attempt, metadata)
-
-      {:error, reason} ->
-        Logger.warning("Retry poll failed for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{inspect(reason)}")
-
-        {:noreply,
-         schedule_issue_retry(
-           state,
-           issue_id,
-           attempt + 1,
-           Map.merge(metadata, %{error: "retry poll failed: #{inspect(reason)}"})
-         )}
-    end
-  end
-
-  defp handle_retry_issue_lookup(%Issue{} = issue, state, issue_id, attempt, metadata) do
-    terminal_states = terminal_state_set()
-
-    cond do
-      terminal_issue_state?(issue.state, terminal_states) ->
-        Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
-
-        cleanup_issue_workspace(issue.identifier)
-        {:noreply, release_issue_claim(state, issue_id)}
-
-      retry_candidate_issue?(issue, terminal_states) ->
-        handle_active_retry(state, issue, attempt, metadata)
-
-      true ->
-        Logger.debug("Issue left active states, removing claim issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
-
-        {:noreply, release_issue_claim(state, issue_id)}
-    end
-  end
-
-  defp handle_retry_issue_lookup(nil, state, issue_id, _attempt, _metadata) do
-    Logger.debug("Issue no longer visible, removing claim issue_id=#{issue_id}")
-    {:noreply, release_issue_claim(state, issue_id)}
-  end
-
-  defp cleanup_issue_workspace(identifier) when is_binary(identifier) do
-    safe_id = String.replace(identifier, ~r/[^a-zA-Z0-9._-]/, "_")
-    workspace = Path.join(Config.workspace_root(), safe_id)
-
-    case Workspace.remove(workspace) do
-      {:ok, _} ->
-        :ok
-
-      {:error, reason, _} ->
-        Logger.warning("Workspace cleanup failed for identifier=#{identifier} reason=#{inspect(reason)}")
-        :ok
-    end
-  end
-
-  defp cleanup_issue_workspace(_identifier), do: :ok
-
-  defp run_terminal_workspace_cleanup do
-    case Tracker.fetch_issues_by_states(Config.linear_terminal_states()) do
-      {:ok, issues} ->
-        issues
-        |> Enum.each(fn
-          %Issue{identifier: identifier} when is_binary(identifier) ->
-            cleanup_issue_workspace(identifier)
-
-          _ ->
-            :ok
-        end)
-
-      {:error, reason} ->
-        Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
-    end
-  end
-
-  defp notify_dashboard do
-    StatusDashboard.notify_update()
-  end
-
-  defp handle_active_retry(state, issue, attempt, metadata) do
-    if retry_candidate_issue?(issue, terminal_state_set()) and
-         dispatch_slots_available?(issue, state) do
-      {:noreply, dispatch_issue(state, issue, attempt)}
-    else
-      Logger.debug("No available slots for retrying #{issue_context(issue)}; retrying again")
-
-      {:noreply,
-       schedule_issue_retry(
-         state,
-         issue.id,
-         attempt + 1,
-         Map.merge(metadata, %{
-           identifier: issue.identifier,
-           error: "no available orchestrator slots"
-         })
-       )}
-    end
-  end
-
-  defp release_issue_claim(%State{} = state, issue_id) do
-    %{state | claimed: Map.delete(state.claimed, issue_id)}
-  end
-
-  defp prune_stale_entries(%State{} = state) do
-    now = DateTime.utc_now()
-
-    %{
-      state
-      | completed: prune_map(state.completed, now, @completed_ttl_ms),
-        claimed: prune_claimed(state, now),
-        retry_attempts: prune_retry_attempts(state.retry_attempts, now, @completed_ttl_ms)
-    }
-  end
-
-  defp prune_map(map, now, ttl_ms) when is_map(map) do
-    Map.filter(map, fn {_id, inserted_at} ->
-      is_struct(inserted_at, DateTime) and DateTime.diff(now, inserted_at, :millisecond) < ttl_ms
-    end)
-  end
-
-  defp prune_claimed(%State{claimed: claimed, running: running, retry_attempts: retries}, now) do
-    Map.filter(claimed, fn {id, inserted_at} ->
-      Map.has_key?(running, id) or Map.has_key?(retries, id) or
-        (is_struct(inserted_at, DateTime) and DateTime.diff(now, inserted_at, :millisecond) < @claimed_ttl_ms)
-    end)
-  end
-
-  defp prune_retry_attempts(retry_attempts, now, ttl_ms) when is_map(retry_attempts) do
-    Map.filter(retry_attempts, fn {_id, entry} ->
-      case Map.get(entry, :last_attempt_at) do
-        %DateTime{} = ts -> DateTime.diff(now, ts, :millisecond) < ttl_ms
-        _ -> true
-      end
-    end)
-  end
-
-  defp retry_delay(attempt, metadata) when is_integer(attempt) and attempt > 0 and is_map(metadata) do
-    if metadata[:delay_type] == :continuation and attempt == 1 do
-      @continuation_retry_delay_ms
-    else
-      failure_retry_delay(attempt)
-    end
-  end
-
-  defp failure_retry_delay(attempt) do
-    max_delay_power = min(attempt - 1, 10)
-    min(@failure_retry_base_ms * (1 <<< max_delay_power), Config.max_retry_backoff_ms())
-  end
-
-  defp normalize_retry_attempt(attempt) when is_integer(attempt) and attempt > 0, do: attempt
-  defp normalize_retry_attempt(_attempt), do: 0
-
-  defp next_retry_attempt_from_running(running_entry) do
-    case Map.get(running_entry, :retry_attempt) do
-      attempt when is_integer(attempt) and attempt > 0 -> attempt + 1
-      _ -> nil
-    end
-  end
-
-  defp pick_retry_identifier(issue_id, previous_retry, metadata) do
-    metadata[:identifier] || Map.get(previous_retry, :identifier) || issue_id
-  end
-
-  defp pick_retry_error(previous_retry, metadata) do
-    metadata[:error] || Map.get(previous_retry, :error)
-  end
-
-  defp find_issue_by_id(issues, issue_id) when is_binary(issue_id) do
-    Enum.find(issues, fn
-      %Issue{id: ^issue_id} ->
-        true
-
-      _ ->
-        false
-    end)
-  end
-
-  defp find_issue_id_for_ref(running, ref) do
-    running
-    |> Enum.find_value(fn {issue_id, %{ref: running_ref}} ->
-      if running_ref == ref, do: issue_id
-    end)
-  end
-
-  defp running_entry_session_id(%{session_id: session_id}) when is_binary(session_id),
-    do: session_id
-
-  defp running_entry_session_id(_running_entry), do: "n/a"
-
-  defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
-    "issue_id=#{issue_id} issue_identifier=#{identifier}"
-  end
-
-  defp available_slots(%State{} = state) do
-    max(
-      (state.max_concurrent_agents || Config.max_concurrent_agents()) - map_size(state.running),
-      0
-    )
-  end
+  # --- Public API ---
 
   @spec request_refresh() :: map() | :unavailable
   def request_refresh do
@@ -1122,6 +443,8 @@ defmodule SymphonyElixir.Orchestrator do
     :ok
   end
 
+  # --- GenServer handle_call callbacks ---
+
   @impl true
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
@@ -1153,7 +476,7 @@ defmodule SymphonyElixir.Orchestrator do
           last_agent_timestamp: metadata.last_agent_timestamp,
           last_agent_message: metadata.last_agent_message,
           last_agent_event: metadata.last_agent_event,
-          runtime_seconds: running_seconds(metadata.started_at, now),
+          runtime_seconds: TokenAccounting.running_seconds(metadata.started_at, now),
           otel_input_tokens: Map.get(metadata, :otel_input_tokens, 0),
           otel_output_tokens: Map.get(metadata, :otel_output_tokens, 0),
           otel_cache_read_tokens: Map.get(metadata, :otel_cache_read_tokens, 0),
@@ -1182,7 +505,7 @@ defmodule SymphonyElixir.Orchestrator do
         }
       end)
 
-    fleet_status = if fleet_paused?(state), do: "paused", else: "running"
+    fleet_status = if FleetPause.fleet_paused?(state), do: "paused", else: "running"
 
     fleet_paused_until =
       case state.fleet_paused_until do
@@ -1227,100 +550,88 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_call({:fleet_pause, reason}, _from, state) do
     reason = reason || "Manual pause (operator)"
-    state = trigger_fleet_pause(state, reason, Config.fleet_pause_default_ms())
+    state = FleetPause.trigger_fleet_pause(state, reason, Config.fleet_pause_default_ms())
     notify_dashboard()
     {:reply, :ok, state}
   end
 
   def handle_call(:fleet_resume, _from, state) do
-    state = clear_fleet_pause(state)
+    state = FleetPause.clear_fleet_pause(state)
     notify_dashboard()
     {:reply, :ok, state}
   end
 
-  defp integrate_agent_update(running_entry, %{event: event, timestamp: timestamp} = update) do
-    token_delta = extract_token_delta(running_entry, update)
-    agent_input_tokens = Map.get(running_entry, :agent_input_tokens, 0)
-    agent_output_tokens = Map.get(running_entry, :agent_output_tokens, 0)
-    agent_total_tokens = Map.get(running_entry, :agent_total_tokens, 0)
-    agent_app_server_pid = Map.get(running_entry, :agent_app_server_pid)
-    last_reported_input = Map.get(running_entry, :agent_last_reported_input_tokens, 0)
-    last_reported_output = Map.get(running_entry, :agent_last_reported_output_tokens, 0)
-    last_reported_total = Map.get(running_entry, :agent_last_reported_total_tokens, 0)
-    turn_count = Map.get(running_entry, :turn_count, 0)
+  # --- Fleet/token test helpers ---
 
-    agent_cache_read = Map.get(running_entry, :agent_cache_read_tokens, 0)
-    agent_cache_creation = Map.get(running_entry, :agent_cache_creation_tokens, 0)
-    agent_cost_usd = Map.get(running_entry, :agent_cost_usd, 0.0)
+  @doc false
+  @spec fleet_paused_for_test?(State.t()) :: boolean()
+  def fleet_paused_for_test?(%State{} = state), do: FleetPause.fleet_paused?(state)
 
-    delta_model = Map.get(token_delta, :model)
+  @doc false
+  @spec trigger_fleet_pause_for_test(State.t(), String.t(), integer() | nil) :: State.t()
+  def trigger_fleet_pause_for_test(%State{} = state, reason, retry_after_ms),
+    do: FleetPause.trigger_fleet_pause(state, reason, retry_after_ms)
 
-    {
-      Map.merge(running_entry, %{
-        last_agent_timestamp: timestamp,
-        last_agent_message: summarize_agent_update(update),
-        session_id: session_id_for_update(running_entry.session_id, update),
-        last_agent_event: event,
-        agent_app_server_pid: agent_app_server_pid_for_update(agent_app_server_pid, update),
-        agent_input_tokens: agent_input_tokens + token_delta.input_tokens,
-        agent_output_tokens: agent_output_tokens + token_delta.output_tokens,
-        agent_total_tokens: agent_total_tokens + token_delta.total_tokens,
-        agent_last_reported_input_tokens: max(last_reported_input, token_delta.input_reported),
-        agent_last_reported_output_tokens: max(last_reported_output, token_delta.output_reported),
-        agent_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
-        turn_count: turn_count_for_update(turn_count, running_entry.session_id, update),
-        agent_cache_read_tokens: agent_cache_read + Map.get(token_delta, :cache_read_tokens, 0),
-        agent_cache_creation_tokens: agent_cache_creation + Map.get(token_delta, :cache_creation_tokens, 0),
-        agent_cost_usd: agent_cost_usd + Map.get(token_delta, :cost_usd, 0.0),
-        agent_model: if(delta_model, do: delta_model, else: Map.get(running_entry, :agent_model))
-      }),
-      token_delta
-    }
-  end
+  @doc false
+  @spec parse_retry_after_for_test(map()) :: integer() | nil
+  def parse_retry_after_for_test(update), do: FleetPause.parse_retry_after(update)
 
-  defp agent_app_server_pid_for_update(_existing, %{agent_app_server_pid: pid})
-       when is_binary(pid),
-       do: pid
+  @doc false
+  @spec extract_token_delta_for_test(map(), map()) :: map()
+  def extract_token_delta_for_test(running_entry, update),
+    do: TokenAccounting.extract_token_delta(running_entry, update)
 
-  defp agent_app_server_pid_for_update(_existing, %{agent_app_server_pid: pid})
-       when is_integer(pid),
-       do: Integer.to_string(pid)
+  @doc false
+  @spec apply_token_delta_for_test(map(), map()) :: map()
+  def apply_token_delta_for_test(agent_totals, token_delta),
+    do: TokenAccounting.apply_token_delta(agent_totals, token_delta)
 
-  defp agent_app_server_pid_for_update(_existing, %{agent_app_server_pid: pid}) when is_list(pid),
-    do: to_string(pid)
+  @doc false
+  @spec integrate_agent_update_for_test(map(), map()) :: map()
+  def integrate_agent_update_for_test(running_entry, update),
+    do: TokenAccounting.integrate_agent_update(running_entry, update)
 
-  defp agent_app_server_pid_for_update(existing, _update), do: existing
+  @doc false
+  @spec select_probe_candidate_for_test([Issue.t()], State.t()) :: Issue.t() | nil
+  def select_probe_candidate_for_test(issues, %State{} = state),
+    do: FleetPause.select_probe_candidate(issues, state)
 
-  defp session_id_for_update(_existing, %{session_id: session_id}) when is_binary(session_id),
-    do: session_id
+  # --- Pruning ---
 
-  defp session_id_for_update(existing, _update), do: existing
+  defp prune_stale_entries(%State{} = state) do
+    now = DateTime.utc_now()
 
-  defp turn_count_for_update(existing_count, existing_session_id, %{
-         event: :session_started,
-         session_id: session_id
-       })
-       when is_integer(existing_count) and is_binary(session_id) do
-    if session_id == existing_session_id do
-      existing_count
-    else
-      existing_count + 1
-    end
-  end
-
-  defp turn_count_for_update(existing_count, _existing_session_id, _update)
-       when is_integer(existing_count),
-       do: existing_count
-
-  defp turn_count_for_update(_existing_count, _existing_session_id, _update), do: 0
-
-  defp summarize_agent_update(update) do
     %{
-      event: update[:event],
-      message: update[:payload] || update[:raw],
-      timestamp: update[:timestamp]
+      state
+      | completed: prune_map(state.completed, now, @completed_ttl_ms),
+        claimed: prune_claimed(state, now),
+        retry_attempts: prune_retry_attempts(state.retry_attempts, now, @completed_ttl_ms)
     }
   end
+
+  defp prune_map(map, now, ttl_ms) when is_map(map) do
+    Map.filter(map, fn {_id, inserted_at} ->
+      is_struct(inserted_at, DateTime) and DateTime.diff(now, inserted_at, :millisecond) < ttl_ms
+    end)
+  end
+
+  defp prune_claimed(%State{claimed: claimed, running: running, retry_attempts: retries}, now) do
+    Map.filter(claimed, fn {id, inserted_at} ->
+      Map.has_key?(running, id) or Map.has_key?(retries, id) or
+        (is_struct(inserted_at, DateTime) and DateTime.diff(now, inserted_at, :millisecond) < @claimed_ttl_ms)
+    end)
+  end
+
+  defp prune_retry_attempts(retry_attempts, now, ttl_ms) when is_map(retry_attempts) do
+    Map.filter(retry_attempts, fn {_id, entry} ->
+      case Map.get(entry, :last_attempt_at) do
+        %DateTime{} = ts -> DateTime.diff(now, ts, :millisecond) < ttl_ms
+        _ -> true
+      end
+    end)
+  end
+
+  # --- Scheduling ---
 
   defp schedule_tick(delay_ms) do
     :timer.send_after(delay_ms, self(), :tick)
@@ -1338,40 +649,30 @@ defmodule SymphonyElixir.Orchestrator do
     max(0, next_poll_due_at_ms - now_ms)
   end
 
+  # --- State helpers ---
+
   defp pop_running_entry(state, issue_id) do
     {Map.get(state.running, issue_id), %{state | running: Map.delete(state.running, issue_id)}}
   end
 
-  defp record_session_completion_totals(state, running_entry) when is_map(running_entry) do
-    runtime_seconds = running_seconds(running_entry.started_at, DateTime.utc_now())
-
-    agent_totals =
-      apply_token_delta(
-        state.agent_totals,
-        %{
-          input_tokens: 0,
-          output_tokens: 0,
-          total_tokens: 0,
-          seconds_running: runtime_seconds,
-          cache_read_tokens: 0,
-          cache_creation_tokens: 0,
-          cost_usd: 0.0,
-          model: nil,
-          tool_calls: Map.get(running_entry, :otel_tool_calls, 0),
-          tool_duration_total_ms: Map.get(running_entry, :otel_tool_duration_total_ms, 0),
-          tool_errors: Map.get(running_entry, :otel_tool_errors, 0),
-          api_errors: Map.get(running_entry, :otel_api_errors, 0),
-          lines_changed: Map.get(running_entry, :otel_lines_changed, 0),
-          commits_count: Map.get(running_entry, :otel_commits_count, 0),
-          prs_count: Map.get(running_entry, :otel_prs_count, 0),
-          active_time_seconds: Map.get(running_entry, :otel_active_time_seconds, 0)
-        }
-      )
-
-    %{state | agent_totals: agent_totals}
+  defp find_issue_id_for_ref(running, ref) do
+    running
+    |> Enum.find_value(fn {issue_id, %{ref: running_ref}} ->
+      if running_ref == ref, do: issue_id
+    end)
   end
 
-  defp record_session_completion_totals(state, _running_entry), do: state
+  defp running_entry_session_id(%{session_id: session_id}) when is_binary(session_id),
+    do: session_id
+
+  defp running_entry_session_id(_running_entry), do: "n/a"
+
+  defp next_retry_attempt_from_running(running_entry) do
+    case Map.get(running_entry, :retry_attempt) do
+      attempt when is_integer(attempt) and attempt > 0 -> attempt + 1
+      _ -> nil
+    end
+  end
 
   defp refresh_runtime_config(%State{} = state) do
     %{
@@ -1381,13 +682,43 @@ defmodule SymphonyElixir.Orchestrator do
     }
   end
 
-  defp retry_candidate_issue?(%Issue{} = issue, terminal_states) do
-    candidate_issue?(issue, active_state_set(), terminal_states) and
-      !todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+  defp notify_dashboard do
+    StatusDashboard.notify_update()
   end
 
-  defp dispatch_slots_available?(%Issue{} = issue, %State{} = state) do
-    can_dispatch?(state) and available_slots(state) > 0 and state_slots_available?(issue, state.running)
+  # --- Workspace cleanup ---
+
+  defp cleanup_issue_workspace(identifier) when is_binary(identifier) do
+    safe_id = String.replace(identifier, ~r/[^a-zA-Z0-9._-]/, "_")
+    workspace = Path.join(Config.workspace_root(), safe_id)
+
+    case Workspace.remove(workspace) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason, _} ->
+        Logger.warning("Workspace cleanup failed for identifier=#{identifier} reason=#{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp cleanup_issue_workspace(_identifier), do: :ok
+
+  defp run_terminal_workspace_cleanup do
+    case Tracker.fetch_issues_by_states(Config.linear_terminal_states()) do
+      {:ok, issues} ->
+        issues
+        |> Enum.each(fn
+          %Issue{identifier: identifier} when is_binary(identifier) ->
+            cleanup_issue_workspace(identifier)
+
+          _ ->
+            :ok
+        end)
+
+      {:error, reason} ->
+        Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
+    end
   end
 
   # --- Shutdown drain logic ---
@@ -1395,6 +726,18 @@ defmodule SymphonyElixir.Orchestrator do
   defp shutting_down? do
     :persistent_term.get(:symphony_shutting_down, false) == true
   end
+
+  defp terminate_task(pid) when is_pid(pid) do
+    case SymphonyElixir.AgentSupervisor.stop_agent(pid) do
+      :ok ->
+        :ok
+
+      {:error, :not_found} ->
+        Process.exit(pid, :shutdown)
+    end
+  end
+
+  defp terminate_task(_pid), do: :ok
 
   defp drain_running_agents(running) when map_size(running) == 0 do
     Logger.info("Shutdown: no active agents to drain")
@@ -1465,998 +808,4 @@ defmodule SymphonyElixir.Orchestrator do
       end
     end
   end
-
-  # --- Fleet pause logic ---
-
-  defp can_dispatch?(%State{} = state), do: !fleet_paused?(state) and !shutting_down?()
-
-  @doc false
-  @spec fleet_paused_for_test?(State.t()) :: boolean()
-  def fleet_paused_for_test?(%State{} = state), do: fleet_paused?(state)
-
-  defp fleet_paused?(%State{fleet_paused_until: nil}), do: false
-
-  defp fleet_paused?(%State{fleet_paused_until: %DateTime{} = paused_until}) do
-    DateTime.compare(DateTime.utc_now(), paused_until) == :lt
-  end
-
-  defp classify_fleet_error(%State{} = state, _issue_id, %{event: event} = update) do
-    error_type = extract_error_type(update)
-    is_global = extract_is_global(update)
-
-    cond do
-      error_type == "usage_cap" and is_global == true ->
-        retry_after_ms = parse_retry_after(update)
-
-        trigger_fleet_pause(
-          state,
-          "Global usage cap reached",
-          retry_after_ms
-        )
-
-      error_type == "rate_limit" ->
-        state
-        |> increment_consecutive_limit_failures()
-        |> maybe_trigger_pattern_fleet_pause()
-
-      event in [:turn_completed, "turn/completed"] ->
-        reset_consecutive_limit_failures(state)
-
-      true ->
-        state
-    end
-  end
-
-  defp extract_error_type(%{error_type: error_type}) when is_binary(error_type), do: error_type
-
-  defp extract_error_type(update) when is_map(update) do
-    Map.get(update, "error_type") ||
-      get_in_fleet(update, [:payload, :error_type]) ||
-      get_in_fleet(update, [:payload, "error_type"]) ||
-      get_in_fleet(update, ["payload", "error_type"])
-  end
-
-  defp extract_error_type(_), do: nil
-
-  defp extract_is_global(%{is_global: is_global}) when is_boolean(is_global), do: is_global
-
-  defp extract_is_global(update) when is_map(update) do
-    Map.get(update, "is_global") ||
-      get_in_fleet(update, [:payload, :is_global]) ||
-      get_in_fleet(update, [:payload, "is_global"]) ||
-      get_in_fleet(update, ["payload", "is_global"])
-  end
-
-  defp extract_is_global(_), do: nil
-
-  defp get_in_fleet(update, keys) when is_map(update) and is_list(keys) do
-    Enum.reduce_while(keys, update, fn key, acc ->
-      if is_map(acc), do: {:cont, Map.get(acc, key)}, else: {:halt, nil}
-    end)
-  end
-
-  @doc false
-  @spec trigger_fleet_pause_for_test(State.t(), String.t(), integer() | nil) :: State.t()
-  def trigger_fleet_pause_for_test(%State{} = state, reason, retry_after_ms),
-    do: trigger_fleet_pause(state, reason, retry_after_ms)
-
-  defp trigger_fleet_pause(%State{} = state, reason, retry_after_ms) do
-    default_ms = Config.fleet_pause_default_ms()
-    max_ms = Config.fleet_pause_max_ms()
-    pause_ms = (retry_after_ms || default_ms) |> max(@min_fleet_pause_ms) |> min(max_ms)
-    paused_until = DateTime.add(DateTime.utc_now(), pause_ms, :millisecond)
-    attempt = state.fleet_pause_attempt + 1
-
-    Logger.warning("Fleet paused: #{reason}. Resuming at #{DateTime.to_iso8601(paused_until)} (attempt #{attempt})")
-
-    Process.send_after(self(), :fleet_pause_expired, pause_ms)
-
-    %{
-      state
-      | fleet_paused_until: paused_until,
-        fleet_pause_reason: reason,
-        fleet_pause_attempt: attempt,
-        fleet_probe_active: false,
-        fleet_probe_started_at: nil
-    }
-  end
-
-  defp clear_fleet_pause(%State{} = state) do
-    Logger.info("Fleet resumed: probe succeeded, clearing fleet pause")
-
-    %{
-      state
-      | fleet_paused_until: nil,
-        fleet_pause_reason: nil,
-        fleet_pause_attempt: 0,
-        fleet_probe_active: false,
-        fleet_probe_started_at: nil,
-        consecutive_limit_failures: 0,
-        last_limit_failure_at: nil
-    }
-  end
-
-  defp extend_fleet_pause(%State{} = state) do
-    default_ms = Config.fleet_pause_default_ms()
-    max_ms = Config.fleet_pause_max_ms()
-    attempt = state.fleet_pause_attempt
-    extension_ms = min(default_ms * (1 <<< min(attempt, 10)), max_ms)
-
-    Logger.warning("Fleet probe failed; extending pause by #{div(extension_ms, 60_000)} minutes (attempt #{attempt + 1})")
-
-    trigger_fleet_pause(state, "Probe failed, extending pause", extension_ms)
-  end
-
-  defp increment_consecutive_limit_failures(%State{} = state) do
-    %{
-      state
-      | consecutive_limit_failures: state.consecutive_limit_failures + 1,
-        last_limit_failure_at: DateTime.utc_now()
-    }
-  end
-
-  defp reset_consecutive_limit_failures(%State{} = state) do
-    %{state | consecutive_limit_failures: 0, last_limit_failure_at: nil}
-  end
-
-  defp maybe_trigger_pattern_fleet_pause(%State{} = state) do
-    threshold = Config.fleet_pause_pattern_threshold()
-    window_ms = Config.fleet_pause_pattern_window_ms()
-
-    cond do
-      state.consecutive_limit_failures < threshold ->
-        state
-
-      is_nil(state.last_limit_failure_at) ->
-        state
-
-      true ->
-        elapsed_ms = DateTime.diff(DateTime.utc_now(), state.last_limit_failure_at, :millisecond)
-
-        if elapsed_ms <= window_ms do
-          trigger_fleet_pause(state, "Pattern detection: #{state.consecutive_limit_failures} failures within #{div(window_ms, 1000)}s", nil)
-        else
-          reset_consecutive_limit_failures(state)
-        end
-    end
-  end
-
-  @doc false
-  @spec parse_retry_after_for_test(map()) :: integer() | nil
-  def parse_retry_after_for_test(update), do: parse_retry_after(update)
-
-  @doc false
-  @spec extract_token_delta_for_test(map(), map()) :: map()
-  def extract_token_delta_for_test(running_entry, update),
-    do: extract_token_delta(running_entry, update)
-
-  @doc false
-  @spec apply_token_delta_for_test(map(), map()) :: map()
-  def apply_token_delta_for_test(agent_totals, token_delta),
-    do: apply_token_delta(agent_totals, token_delta)
-
-  @doc false
-  @spec integrate_agent_update_for_test(map(), map()) :: map()
-  def integrate_agent_update_for_test(running_entry, update),
-    do: integrate_agent_update(running_entry, update)
-
-  @doc false
-  @spec select_probe_candidate_for_test([Issue.t()], State.t()) :: Issue.t() | nil
-  def select_probe_candidate_for_test(issues, %State{} = state),
-    do: select_probe_candidate(issues, state)
-
-  defp parse_retry_after(update) when is_map(update) do
-    raw =
-      Map.get(update, :retry_after) ||
-        Map.get(update, "retry_after") ||
-        get_in_fleet(update, [:payload, :retry_after]) ||
-        get_in_fleet(update, [:payload, "retry_after"]) ||
-        get_in_fleet(update, ["payload", "retry_after"])
-
-    parse_retry_after_value(raw)
-  end
-
-  defp parse_retry_after(_), do: nil
-
-  defp parse_retry_after_value(ms) when is_integer(ms) and ms > 0, do: ms
-
-  defp parse_retry_after_value(value) when is_binary(value) do
-    trimmed = String.trim(String.downcase(value))
-
-    cond do
-      String.contains?(trimmed, "hour") ->
-        case Integer.parse(trimmed) do
-          {n, _} when n > 0 -> n * 3_600_000
-          _ -> nil
-        end
-
-      String.contains?(trimmed, "minute") or String.contains?(trimmed, "min") ->
-        case Integer.parse(trimmed) do
-          {n, _} when n > 0 -> n * 60_000
-          _ -> nil
-        end
-
-      String.contains?(trimmed, "second") or String.contains?(trimmed, "sec") ->
-        case Integer.parse(trimmed) do
-          {n, _} when n > 0 -> n * 1_000
-          _ -> nil
-        end
-
-      true ->
-        case Integer.parse(trimmed) do
-          {n, _} when n > 0 -> n
-          _ -> nil
-        end
-    end
-  end
-
-  defp parse_retry_after_value(_), do: nil
-
-  defp dispatch_probe_agent(%State{} = state) do
-    case Tracker.fetch_candidate_issues() do
-      {:ok, issues} when issues != [] ->
-        probe_issue = select_probe_candidate(issues, state)
-
-        if probe_issue do
-          Logger.info("Dispatching probe agent for #{issue_context(probe_issue)}")
-          do_dispatch_probe(state, probe_issue)
-        else
-          Logger.warning("No candidate issues for fleet probe; rescheduling")
-          reschedule_fleet_probe(state)
-        end
-
-      _ ->
-        Logger.warning("Could not fetch issues for fleet probe; rescheduling")
-        reschedule_fleet_probe(state)
-    end
-  end
-
-  defp select_probe_candidate(issues, %State{running: running, claimed: claimed}) do
-    issues
-    |> Enum.reject(fn issue ->
-      Map.has_key?(running, issue.id) or Map.has_key?(claimed, issue.id)
-    end)
-    |> sort_issues_for_dispatch()
-    |> List.last()
-  end
-
-  defp do_dispatch_probe(%State{} = state, issue) do
-    recipient = self()
-
-    case SymphonyElixir.AgentSupervisor.start_agent(fn ->
-           AgentRunner.run(issue, recipient, attempt: nil)
-         end) do
-      {:ok, pid} ->
-        ref = Process.monitor(pid)
-
-        Logger.info("Probe agent dispatched: #{issue_context(issue)} pid=#{inspect(pid)}")
-
-        running =
-          Map.put(state.running, issue.id, %{
-            pid: pid,
-            ref: ref,
-            identifier: issue.identifier,
-            issue: issue,
-            session_id: nil,
-            last_agent_message: nil,
-            last_agent_timestamp: nil,
-            last_agent_event: nil,
-            agent_app_server_pid: nil,
-            agent_input_tokens: 0,
-            agent_output_tokens: 0,
-            agent_total_tokens: 0,
-            agent_last_reported_input_tokens: 0,
-            agent_last_reported_output_tokens: 0,
-            agent_last_reported_total_tokens: 0,
-            turn_count: 0,
-            retry_attempt: 0,
-            started_at: DateTime.utc_now(),
-            is_fleet_probe: true,
-            otel_input_tokens: 0,
-            otel_output_tokens: 0,
-            otel_cache_read_tokens: 0,
-            otel_cache_creation_tokens: 0,
-            otel_cost_usd: 0.0,
-            otel_tool_calls: 0,
-            otel_tool_duration_total_ms: 0,
-            otel_tool_errors: 0,
-            otel_api_errors: 0,
-            otel_lines_changed: 0,
-            otel_commits_count: 0,
-            otel_prs_count: 0,
-            otel_active_time_seconds: 0
-          })
-
-        %{
-          state
-          | running: running,
-            claimed: Map.put(state.claimed, issue.id, DateTime.utc_now()),
-            retry_attempts: Map.delete(state.retry_attempts, issue.id),
-            fleet_probe_active: true,
-            fleet_probe_started_at: DateTime.utc_now()
-        }
-
-      {:error, reason} ->
-        Logger.error("Failed to spawn probe agent: #{inspect(reason)}")
-        reschedule_fleet_probe(state)
-    end
-  end
-
-  defp reschedule_fleet_probe(%State{} = state) do
-    Process.send_after(self(), :fleet_pause_expired, 60_000)
-    state
-  end
-
-  defp probe_stalled?(%State{fleet_probe_started_at: nil}, _timeout_ms), do: true
-
-  defp probe_stalled?(%State{fleet_probe_started_at: started_at}, timeout_ms) do
-    DateTime.diff(DateTime.utc_now(), started_at, :millisecond) >= timeout_ms
-  end
-
-  defp force_kill_stalled_probe(%State{running: running} = state) do
-    case Enum.find(running, fn {_id, entry} -> Map.get(entry, :is_fleet_probe, false) end) do
-      {issue_id, %{pid: pid, ref: ref}} ->
-        if is_pid(pid), do: terminate_task(pid)
-        if is_reference(ref), do: Process.demonitor(ref, [:flush])
-
-        %{
-          state
-          | running: Map.delete(running, issue_id),
-            fleet_probe_active: false,
-            fleet_probe_started_at: nil
-        }
-
-      nil ->
-        %{state | fleet_probe_active: false, fleet_probe_started_at: nil}
-    end
-  end
-
-  # --- End fleet pause logic ---
-
-  defp apply_agent_token_delta(
-         %{agent_totals: agent_totals} = state,
-         %{input_tokens: input, output_tokens: output, total_tokens: total} = token_delta
-       )
-       when is_integer(input) and is_integer(output) and is_integer(total) do
-    %{state | agent_totals: apply_token_delta(agent_totals, token_delta)}
-  end
-
-  defp apply_agent_token_delta(state, _token_delta), do: state
-
-  defp apply_agent_rate_limits(%State{} = state, update) when is_map(update) do
-    case extract_rate_limits(update) do
-      %{} = rate_limits ->
-        %{state | agent_rate_limits: rate_limits}
-
-      _ ->
-        state
-    end
-  end
-
-  defp apply_agent_rate_limits(state, _update), do: state
-
-  defp apply_token_delta(agent_totals, token_delta) do
-    input_tokens = Map.get(agent_totals, :input_tokens, 0) + token_delta.input_tokens
-    output_tokens = Map.get(agent_totals, :output_tokens, 0) + token_delta.output_tokens
-    total_tokens = Map.get(agent_totals, :total_tokens, 0) + token_delta.total_tokens
-
-    seconds_running =
-      Map.get(agent_totals, :seconds_running, 0) + Map.get(token_delta, :seconds_running, 0)
-
-    cache_read_tokens =
-      Map.get(agent_totals, :cache_read_tokens, 0) + Map.get(token_delta, :cache_read_tokens, 0)
-
-    cache_creation_tokens =
-      Map.get(agent_totals, :cache_creation_tokens, 0) +
-        Map.get(token_delta, :cache_creation_tokens, 0)
-
-    cost_usd =
-      Map.get(agent_totals, :cost_usd, 0.0) + Map.get(token_delta, :cost_usd, 0.0)
-
-    delta_model = Map.get(token_delta, :model)
-    model = if delta_model, do: delta_model, else: Map.get(agent_totals, :model)
-
-    tool_calls =
-      Map.get(agent_totals, :tool_calls, 0) + Map.get(token_delta, :tool_calls, 0)
-
-    tool_duration_total_ms =
-      Map.get(agent_totals, :tool_duration_total_ms, 0) +
-        Map.get(token_delta, :tool_duration_total_ms, 0)
-
-    tool_errors =
-      Map.get(agent_totals, :tool_errors, 0) + Map.get(token_delta, :tool_errors, 0)
-
-    api_errors =
-      Map.get(agent_totals, :api_errors, 0) + Map.get(token_delta, :api_errors, 0)
-
-    lines_changed =
-      max(Map.get(agent_totals, :lines_changed, 0), Map.get(token_delta, :lines_changed, 0))
-
-    commits_count =
-      max(Map.get(agent_totals, :commits_count, 0), Map.get(token_delta, :commits_count, 0))
-
-    prs_count =
-      max(Map.get(agent_totals, :prs_count, 0), Map.get(token_delta, :prs_count, 0))
-
-    active_time_seconds =
-      max(
-        Map.get(agent_totals, :active_time_seconds, 0),
-        Map.get(token_delta, :active_time_seconds, 0)
-      )
-
-    %{
-      input_tokens: max(0, input_tokens),
-      output_tokens: max(0, output_tokens),
-      total_tokens: max(0, total_tokens),
-      seconds_running: max(0, seconds_running),
-      cache_read_tokens: max(0, cache_read_tokens),
-      cache_creation_tokens: max(0, cache_creation_tokens),
-      cost_usd: max(0.0, cost_usd),
-      model: model,
-      tool_calls: max(0, tool_calls),
-      tool_duration_total_ms: max(0, tool_duration_total_ms),
-      tool_errors: max(0, tool_errors),
-      api_errors: max(0, api_errors),
-      lines_changed: max(0, lines_changed),
-      commits_count: max(0, commits_count),
-      prs_count: max(0, prs_count),
-      active_time_seconds: max(0, active_time_seconds)
-    }
-  end
-
-  defp extract_token_delta(running_entry, %{event: _, timestamp: _} = update) do
-    running_entry = running_entry || %{}
-    usage = extract_token_usage(update)
-
-    {
-      compute_token_delta(
-        running_entry,
-        :input,
-        usage,
-        :agent_last_reported_input_tokens
-      ),
-      compute_token_delta(
-        running_entry,
-        :output,
-        usage,
-        :agent_last_reported_output_tokens
-      ),
-      compute_token_delta(
-        running_entry,
-        :total,
-        usage,
-        :agent_last_reported_total_tokens
-      )
-    }
-    |> Tuple.to_list()
-    |> then(fn [input, output, total] ->
-      %{
-        input_tokens: input.delta,
-        output_tokens: output.delta,
-        total_tokens: total.delta,
-        input_reported: input.reported,
-        output_reported: output.reported,
-        total_reported: total.reported,
-        cache_read_tokens: extract_cache_read_tokens(usage),
-        cache_creation_tokens: extract_cache_creation_tokens(usage),
-        cost_usd: extract_cost_usd(update),
-        model: extract_model(update)
-      }
-    end)
-  end
-
-  defp compute_token_delta(running_entry, token_key, usage, reported_key) do
-    next_total = get_token_usage(usage, token_key)
-    prev_reported = Map.get(running_entry, reported_key, 0)
-
-    delta =
-      if is_integer(next_total) and next_total >= prev_reported do
-        next_total - prev_reported
-      else
-        if is_integer(next_total) and next_total < prev_reported do
-          Logger.debug("Token delta clamped to 0: dimension=#{token_key} prev_reported=#{prev_reported} next_reported=#{next_total}")
-        end
-
-        0
-      end
-
-    %{
-      delta: max(delta, 0),
-      reported: if(is_integer(next_total), do: next_total, else: prev_reported)
-    }
-  end
-
-  defp extract_cache_read_tokens(usage) when is_map(usage) do
-    value =
-      Map.get(usage, "cache_read_input_tokens") ||
-        Map.get(usage, :cache_read_input_tokens) ||
-        Map.get(usage, "cache_read_tokens") ||
-        Map.get(usage, :cache_read_tokens)
-
-    if is_integer(value) and value >= 0, do: value, else: 0
-  end
-
-  defp extract_cache_read_tokens(_usage), do: 0
-
-  defp extract_cache_creation_tokens(usage) when is_map(usage) do
-    value =
-      Map.get(usage, "cache_creation_input_tokens") ||
-        Map.get(usage, :cache_creation_input_tokens) ||
-        Map.get(usage, "cache_creation_tokens") ||
-        Map.get(usage, :cache_creation_tokens)
-
-    if is_integer(value) and value >= 0, do: value, else: 0
-  end
-
-  defp extract_cache_creation_tokens(_usage), do: 0
-
-  defp extract_cost_usd(update) when is_map(update) do
-    value =
-      Map.get(update, :cost_usd) ||
-        Map.get(update, "cost_usd") ||
-        get_in_fleet(update, [:usage, :cost_usd]) ||
-        get_in_fleet(update, [:usage, "cost_usd"]) ||
-        get_in_fleet(update, ["usage", "cost_usd"]) ||
-        get_in_fleet(update, [:payload, :cost_usd]) ||
-        get_in_fleet(update, [:payload, "cost_usd"]) ||
-        get_in_fleet(update, ["payload", "cost_usd"]) ||
-        get_in_fleet(update, [:payload, :params, :cost_usd]) ||
-        get_in_fleet(update, [:payload, "params", "cost_usd"]) ||
-        get_in_fleet(update, ["payload", "params", "cost_usd"])
-
-    cond do
-      is_float(value) and value >= 0.0 -> value
-      is_integer(value) and value >= 0 -> value / 1
-      true -> 0.0
-    end
-  end
-
-  defp extract_cost_usd(_update), do: 0.0
-
-  defp extract_model(update) when is_map(update) do
-    Map.get(update, :model) ||
-      Map.get(update, "model") ||
-      get_in_fleet(update, [:usage, :model]) ||
-      get_in_fleet(update, [:usage, "model"]) ||
-      get_in_fleet(update, ["usage", "model"]) ||
-      get_in_fleet(update, [:payload, :model]) ||
-      get_in_fleet(update, [:payload, "model"]) ||
-      get_in_fleet(update, ["payload", "model"]) ||
-      get_in_fleet(update, [:payload, :params, :model]) ||
-      get_in_fleet(update, [:payload, "params", "model"]) ||
-      get_in_fleet(update, ["payload", "params", "model"])
-  end
-
-  defp extract_model(_update), do: nil
-
-  defp extract_token_usage(update) do
-    payloads = [
-      update[:usage],
-      Map.get(update, "usage"),
-      Map.get(update, :usage),
-      update[:payload],
-      Map.get(update, "payload"),
-      update
-    ]
-
-    Enum.find_value(payloads, &absolute_token_usage_from_payload/1) ||
-      Enum.find_value(payloads, &turn_completed_usage_from_payload/1) ||
-      Enum.find_value(payloads, &flat_token_usage_from_payload/1) ||
-      %{}
-  end
-
-  defp extract_rate_limits(update) do
-    rate_limits_from_payload(update[:rate_limits]) ||
-      rate_limits_from_payload(Map.get(update, "rate_limits")) ||
-      rate_limits_from_payload(Map.get(update, :rate_limits)) ||
-      rate_limits_from_payload(update[:payload]) ||
-      rate_limits_from_payload(Map.get(update, "payload")) ||
-      rate_limits_from_payload(update)
-  end
-
-  defp absolute_token_usage_from_payload(payload) when is_map(payload) do
-    absolute_paths = [
-      ["params", "msg", "payload", "info", "total_token_usage"],
-      [:params, :msg, :payload, :info, :total_token_usage],
-      ["params", "msg", "info", "total_token_usage"],
-      [:params, :msg, :info, :total_token_usage],
-      ["params", "tokenUsage", "total"],
-      [:params, :tokenUsage, :total],
-      ["tokenUsage", "total"],
-      [:tokenUsage, :total]
-    ]
-
-    explicit_map_at_paths(payload, absolute_paths)
-  end
-
-  defp absolute_token_usage_from_payload(_payload), do: nil
-
-  defp turn_completed_usage_from_payload(payload) when is_map(payload) do
-    method = Map.get(payload, "method") || Map.get(payload, :method)
-
-    if method in ["turn/completed", :turn_completed] do
-      direct =
-        Map.get(payload, "usage") ||
-          Map.get(payload, :usage) ||
-          map_at_path(payload, ["params", "usage"]) ||
-          map_at_path(payload, [:params, :usage])
-
-      if is_map(direct) and integer_token_map?(direct), do: direct
-    end
-  end
-
-  defp turn_completed_usage_from_payload(_payload), do: nil
-
-  defp flat_token_usage_from_payload(payload) when is_map(payload) do
-    if integer_token_map?(payload), do: payload
-  end
-
-  defp flat_token_usage_from_payload(_payload), do: nil
-
-  defp rate_limits_from_payload(payload) when is_map(payload) do
-    direct = Map.get(payload, "rate_limits") || Map.get(payload, :rate_limits)
-
-    cond do
-      rate_limits_map?(direct) ->
-        direct
-
-      rate_limits_map?(payload) ->
-        payload
-
-      true ->
-        rate_limit_payloads(payload)
-    end
-  end
-
-  defp rate_limits_from_payload(payload) when is_list(payload) do
-    rate_limit_payloads(payload)
-  end
-
-  defp rate_limits_from_payload(_payload), do: nil
-
-  defp rate_limit_payloads(payload) when is_map(payload) do
-    Map.values(payload)
-    |> Enum.reduce_while(nil, fn
-      value, nil ->
-        case rate_limits_from_payload(value) do
-          nil -> {:cont, nil}
-          rate_limits -> {:halt, rate_limits}
-        end
-
-      _value, result ->
-        {:halt, result}
-    end)
-  end
-
-  defp rate_limit_payloads(payload) when is_list(payload) do
-    payload
-    |> Enum.reduce_while(nil, fn
-      value, nil ->
-        case rate_limits_from_payload(value) do
-          nil -> {:cont, nil}
-          rate_limits -> {:halt, rate_limits}
-        end
-
-      _value, result ->
-        {:halt, result}
-    end)
-  end
-
-  defp rate_limits_map?(payload) when is_map(payload) do
-    limit_id =
-      Map.get(payload, "limit_id") ||
-        Map.get(payload, :limit_id) ||
-        Map.get(payload, "limit_name") ||
-        Map.get(payload, :limit_name)
-
-    has_buckets =
-      Enum.any?(
-        ["primary", :primary, "secondary", :secondary, "credits", :credits],
-        &Map.has_key?(payload, &1)
-      )
-
-    !is_nil(limit_id) and has_buckets
-  end
-
-  defp rate_limits_map?(_payload), do: false
-
-  defp explicit_map_at_paths(payload, paths) when is_map(payload) and is_list(paths) do
-    Enum.find_value(paths, fn path ->
-      value = map_at_path(payload, path)
-
-      if is_map(value) and integer_token_map?(value), do: value
-    end)
-  end
-
-  defp explicit_map_at_paths(_payload, _paths), do: nil
-
-  defp map_at_path(payload, path) when is_map(payload) and is_list(path) do
-    Enum.reduce_while(path, payload, fn key, acc ->
-      if is_map(acc) and Map.has_key?(acc, key) do
-        {:cont, Map.get(acc, key)}
-      else
-        {:halt, nil}
-      end
-    end)
-  end
-
-  defp map_at_path(_payload, _path), do: nil
-
-  defp integer_token_map?(payload) do
-    token_fields = [
-      :input_tokens,
-      :output_tokens,
-      :total_tokens,
-      :prompt_tokens,
-      :completion_tokens,
-      :inputTokens,
-      :outputTokens,
-      :totalTokens,
-      :promptTokens,
-      :completionTokens,
-      "input_tokens",
-      "output_tokens",
-      "total_tokens",
-      "prompt_tokens",
-      "completion_tokens",
-      "inputTokens",
-      "outputTokens",
-      "totalTokens",
-      "promptTokens",
-      "completionTokens"
-    ]
-
-    token_fields
-    |> Enum.any?(fn field ->
-      value = payload_get(payload, field)
-      !is_nil(integer_like(value))
-    end)
-  end
-
-  defp get_token_usage(usage, :input),
-    do:
-      payload_get(usage, [
-        "input_tokens",
-        "prompt_tokens",
-        :input_tokens,
-        :prompt_tokens,
-        :input,
-        "promptTokens",
-        :promptTokens,
-        "inputTokens",
-        :inputTokens
-      ])
-
-  defp get_token_usage(usage, :output),
-    do:
-      payload_get(usage, [
-        "output_tokens",
-        "completion_tokens",
-        :output_tokens,
-        :completion_tokens,
-        :output,
-        :completion,
-        "outputTokens",
-        :outputTokens,
-        "completionTokens",
-        :completionTokens
-      ])
-
-  defp get_token_usage(usage, :total),
-    do:
-      payload_get(usage, [
-        "total_tokens",
-        "total",
-        :total_tokens,
-        :total,
-        "totalTokens",
-        :totalTokens
-      ])
-
-  defp payload_get(payload, fields) when is_list(fields) do
-    Enum.find_value(fields, fn field -> map_integer_value(payload, field) end)
-  end
-
-  defp payload_get(payload, field), do: map_integer_value(payload, field)
-
-  defp map_integer_value(payload, field) do
-    if is_map(payload) do
-      value = Map.get(payload, field)
-      integer_like(value)
-    else
-      nil
-    end
-  end
-
-  defp running_seconds(%DateTime{} = started_at, %DateTime{} = now) do
-    max(0, DateTime.diff(now, started_at, :second))
-  end
-
-  defp running_seconds(_started_at, _now), do: 0
-
-  defp integer_like(value) when is_integer(value) and value >= 0, do: value
-
-  defp integer_like(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {num, _} when num >= 0 -> num
-      _ -> nil
-    end
-  end
-
-  defp integer_like(_value), do: nil
-
-  # --- OTel metric integration ---
-
-  defp find_issue_id_for_session(running, session_id) when is_map(running) and is_binary(session_id) do
-    Enum.find_value(running, fn
-      {issue_id, %{session_id: ^session_id}} -> issue_id
-      _ -> nil
-    end)
-  end
-
-  defp merge_otel_metrics(running_entry, metrics) when is_map(running_entry) and is_map(metrics) do
-    running_entry
-    |> merge_otel_token_data(metrics)
-    |> merge_otel_tool_executions(metrics)
-    |> merge_otel_api_errors(metrics)
-    |> merge_otel_lines_changed(metrics)
-    |> merge_otel_commits_count(metrics)
-    |> merge_otel_prs_count(metrics)
-    |> merge_otel_active_time(metrics)
-  end
-
-  defp merge_otel_token_data(entry, metrics) do
-    token_data = Map.get(metrics, "claude_code.token.usage", [])
-    cost_data = Map.get(metrics, "claude_code.cost.usage", [])
-
-    input = otel_token_value(token_data, "input")
-    output = otel_token_value(token_data, "output")
-    cache_read = otel_token_value(token_data, "cache_read")
-    cache_creation = otel_token_value(token_data, "cache_creation")
-    cost = otel_cost_value(cost_data)
-
-    entry
-    |> maybe_update_otel(:otel_input_tokens, input)
-    |> maybe_update_otel(:otel_output_tokens, output)
-    |> maybe_update_otel(:otel_cache_read_tokens, cache_read)
-    |> maybe_update_otel(:otel_cache_creation_tokens, cache_creation)
-    |> maybe_update_otel_float(:otel_cost_usd, cost)
-  end
-
-  defp otel_token_value(data_points, type) when is_list(data_points) do
-    Enum.find_value(data_points, fn
-      %{value: value, attributes: %{"type" => ^type}} when is_integer(value) -> value
-      _ -> nil
-    end)
-  end
-
-  defp otel_cost_value(data_points) when is_list(data_points) do
-    Enum.find_value(data_points, fn
-      %{value: value} when is_number(value) -> value
-      _ -> nil
-    end)
-  end
-
-  defp otel_cost_value(_), do: nil
-
-  defp maybe_update_otel(entry, _key, nil), do: entry
-
-  defp maybe_update_otel(entry, key, value) when is_integer(value) and value >= 0 do
-    Map.put(entry, key, value)
-  end
-
-  defp maybe_update_otel(entry, _key, _value), do: entry
-
-  defp maybe_update_otel_float(entry, _key, nil), do: entry
-
-  defp maybe_update_otel_float(entry, key, value) when is_number(value) and value >= 0 do
-    Map.put(entry, key, value / 1)
-  end
-
-  defp maybe_update_otel_float(entry, _key, _value), do: entry
-
-  defp merge_otel_tool_executions(entry, metrics) do
-    events = Map.get(metrics, :events, [])
-
-    {count, duration_ms, errors} =
-      Enum.reduce(events, {0, 0, 0}, fn
-        %{name: "claude_code.tool_result", attributes: attrs}, {c, d, e} when is_map(attrs) ->
-          dur = otel_numeric(Map.get(attrs, "duration_ms", 0))
-          err = if Map.get(attrs, "success", true), do: 0, else: 1
-          {c + 1, d + dur, e + err}
-
-        _, acc ->
-          acc
-      end)
-
-    if count > 0 do
-      entry
-      |> Map.update(:otel_tool_calls, count, &(&1 + count))
-      |> Map.update(:otel_tool_duration_total_ms, duration_ms, &(&1 + duration_ms))
-      |> Map.update(:otel_tool_errors, errors, &(&1 + errors))
-    else
-      entry
-    end
-  end
-
-  defp merge_otel_api_errors(entry, metrics) do
-    metric_count = otel_sum_value(Map.get(metrics, "claude_code.api_error", []))
-
-    event_count =
-      metrics
-      |> Map.get(:events, [])
-      |> Enum.count(fn
-        %{name: "claude_code.api_error"} -> true
-        _ -> false
-      end)
-
-    total = metric_count + event_count
-
-    if total > 0 do
-      Map.put(entry, :otel_api_errors, Map.get(entry, :otel_api_errors, 0) + total)
-    else
-      entry
-    end
-  end
-
-  defp merge_otel_lines_changed(entry, metrics) do
-    value = otel_sum_value(Map.get(metrics, "claude_code.lines_of_code.count", []))
-
-    if value > 0 do
-      Map.put(entry, :otel_lines_changed, value)
-    else
-      entry
-    end
-  end
-
-  defp merge_otel_commits_count(entry, metrics) do
-    value = otel_sum_value(Map.get(metrics, "claude_code.commit.count", []))
-
-    if value > 0 do
-      Map.put(entry, :otel_commits_count, value)
-    else
-      entry
-    end
-  end
-
-  defp merge_otel_prs_count(entry, metrics) do
-    value = otel_sum_value(Map.get(metrics, "claude_code.pull_request.count", []))
-
-    if value > 0 do
-      Map.put(entry, :otel_prs_count, value)
-    else
-      entry
-    end
-  end
-
-  defp merge_otel_active_time(entry, metrics) do
-    value = otel_sum_value(Map.get(metrics, "claude_code.active_time.total", []))
-
-    if value > 0 do
-      Map.put(entry, :otel_active_time_seconds, value)
-    else
-      entry
-    end
-  end
-
-  defp otel_sum_value(data_points) when is_list(data_points) do
-    Enum.reduce(data_points, 0, fn
-      %{value: value}, acc when is_number(value) -> acc + value
-      _, acc -> acc
-    end)
-  end
-
-  defp otel_sum_value(_), do: 0
-
-  defp otel_numeric(value) when is_integer(value), do: value
-  defp otel_numeric(value) when is_float(value), do: round(value)
-
-  defp otel_numeric(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {n, _} -> n
-      :error -> 0
-    end
-  end
-
-  defp otel_numeric(_), do: 0
 end
