@@ -222,10 +222,28 @@ jobs:
           echo "Generated checksums:"
           cat ../checksums.txt
 
-      - name: Upload checksums
+      - name: Import GPG signing key
+        run: |
+          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Sign checksums with GPG
+        run: |
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$GPG_PASSPHRASE" \
+            --detach-sign --armor checksums.txt
+          echo "Generated signature:"
+          ls -la checksums.txt.asc
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Upload checksums and signature
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          files: checksums.txt
+          files: |
+            checksums.txt
+            checksums.txt.asc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
