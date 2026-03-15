@@ -435,9 +435,15 @@ All hooks respect `hooks.timeout_ms` (default 60s).
 | Component | File |
 | --- | --- |
 | Application & supervisor tree | `lib/symphony_elixir.ex` |
-| Orchestrator (polling, dispatch, fleet pause) | `lib/symphony_elixir/orchestrator.ex` |
+| Orchestrator (GenServer, state, coordinator) | `lib/symphony_elixir/orchestrator.ex` |
+| Orchestrator dispatch (issue dispatch, retry) | `lib/symphony_elixir/orchestrator/dispatch.ex` |
+| Orchestrator fleet pause (pause, probe, backoff) | `lib/symphony_elixir/orchestrator/fleet_pause.ex` |
+| Orchestrator reconciliation (state sync, stall) | `lib/symphony_elixir/orchestrator/reconciliation.ex` |
+| Orchestrator token accounting (deltas, OTel) | `lib/symphony_elixir/orchestrator/token_accounting.ex` |
 | Agent runner (workspace + turn loop) | `lib/symphony_elixir/agent_runner.ex` |
-| Agent server (JSON-RPC over stdio) | `lib/symphony_elixir/agent_server/server.ex` |
+| Agent server (port lifecycle) | `lib/symphony_elixir/agent_server/server.ex` |
+| Agent server protocol (JSON-RPC) | `lib/symphony_elixir/agent_server/protocol.ex` |
+| Agent server tool handler (approval/exec) | `lib/symphony_elixir/agent_server/tool_handler.ex` |
 | Circuit breaker | `lib/symphony_elixir/linear/circuit_breaker.ex` |
 | Linear client (GraphQL) | `lib/symphony_elixir/linear/client.ex` |
 | Linear adapter (CircuitBreaker wrapper) | `lib/symphony_elixir/linear/adapter.ex` |
@@ -446,7 +452,9 @@ All hooks respect `hooks.timeout_ms` (default 60s).
 | Workspace management | `lib/symphony_elixir/workspace.ex` |
 | Hook validation | `lib/symphony_elixir/hook_validator.ex` |
 | Workflow store (WORKFLOW.md cache) | `lib/symphony_elixir/workflow_store.ex` |
-| Config (YAML frontmatter) | `lib/symphony_elixir/config.ex` |
+| Config (accessors, validation) | `lib/symphony_elixir/config.ex` |
+| Config schema (NimbleOptions) | `lib/symphony_elixir/config/schema.ex` |
+| Config parser (TOML extraction) | `lib/symphony_elixir/config/parser.ex` |
 | Status dashboard (terminal UI) | `lib/symphony_elixir/status_dashboard.ex` |
 | Dashboard LiveView | `lib/symphony_elixir_web/live/dashboard_live.ex` |
 | Health check | `lib/symphony_elixir_web/controllers/health_controller.ex` |
