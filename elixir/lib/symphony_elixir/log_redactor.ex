@@ -16,6 +16,8 @@ defmodule SymphonyElixir.LogRedactor do
   # - OpenAI/Anthropic-style keys: sk-<chars>
   # - Bearer tokens: Bearer <token>
   # - Query-string tokens: token=<value>
+  # - Generic api_key parameters: api_key=<value>
+  # - Environment-variable-style API keys: *API_KEY=<value>
   # - Password fields: password=<value> or password: <value>
   # - Authorization header tuples in inspected output: {"Authorization", "value"}
   @secret_pattern ~r/
@@ -25,6 +27,8 @@ defmodule SymphonyElixir.LogRedactor do
     sk-\S+                  |
     Bearer\s+\S+            |
     token=\S+               |
+    api_key=\S+             |
+    [A-Z_]*API_KEY=\S+      |
     password=\S+            |
     password:\s*\S+         |
     "[Aa]uthorization",\s*"[^"]*"
