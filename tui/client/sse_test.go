@@ -318,3 +318,79 @@ func TestParseStateEvent_Invalid(t *testing.T) {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
+
+func TestSSE_BackoffResetsAfterHealthyConnection(t *testing.T) {
+	// Track how many times the server is connected to so we can vary behaviour.
+	var connCount int
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != eventsPath {
+			http.NotFound(w, r)
+			return
+		}
+		connCount++
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+
+		if connCount <= 2 {
+			// First two connections: fail immediately (simulate transient errors).
+			flusher.Flush()
+			return
+		}
+		if connCount == 3 {
+			// Third connection: stay alive long enough for backoff to reset.
+			// The test uses a short maxBackoff stand-in via idleTimeout timing.
+			// We send heartbeats for 250ms then stop, triggering idle timeout.
+			deadline := time.Now().Add(250 * time.Millisecond)
+			for time.Now().Before(deadline) {
+				fmt.Fprint(w, ": heartbeat\n\n")
+				flusher.Flush()
+				time.Sleep(25 * time.Millisecond)
+			}
+			// Stop sending — idle timeout will close this connection.
+			<-r.Context().Done()
+			return
+		}
+		// Fourth connection: send a real event so the test can read it.
+		fmt.Fprint(w, "event: state_update\ndata: {\"generated_at\":\"t1\",\"fleet_status\":\"running\"}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	sub := &SSESubscription{
+		url:               server.URL + eventsPath,
+		httpClient:        &http.Client{},
+		events:            make(chan SSEEvent, 16),
+		ctx:               ctx,
+		cancel:            cancel,
+		idleTimeout:       100 * time.Millisecond,
+		backoffResetAfter: 200 * time.Millisecond,
+	}
+	go sub.loop()
+
+	// After the third (long-lived) connection, backoff should have reset.
+	// If backoff did NOT reset, the wait before the 4th connect would be large
+	// (>1s accumulated) and the test would time out within its budget.
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case ev, ok := <-sub.events:
+		if !ok {
+			t.Fatal("channel closed before receiving event")
+		}
+		if ev.Type != "state_update" {
+			t.Fatalf("expected state_update, got %q", ev.Type)
+		}
+	case <-timer.C:
+		t.Fatal("timed out — backoff likely not reset after healthy connection")
+	}
+}
