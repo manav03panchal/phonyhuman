@@ -23,6 +23,80 @@ is_allowed_otel_endpoint = claude_shim.is_allowed_otel_endpoint
 strip_otel_endpoint_vars = claude_shim.strip_otel_endpoint_vars
 get_allowed_tools = claude_shim.get_allowed_tools
 _DEFAULT_ALLOWED_TOOLS = claude_shim._DEFAULT_ALLOWED_TOOLS
+_validate_linear_endpoint = claude_shim._validate_linear_endpoint
+execute_linear_graphql = claude_shim.execute_linear_graphql
+
+
+class TestValidateLinearEndpoint(unittest.TestCase):
+    def test_default_endpoint_accepted(self):
+        self.assertEqual(
+            _validate_linear_endpoint("https://api.linear.app/graphql"),
+            "https://api.linear.app/graphql",
+        )
+
+    def test_subdomain_accepted(self):
+        self.assertEqual(
+            _validate_linear_endpoint("https://staging.linear.app/graphql"),
+            "https://staging.linear.app/graphql",
+        )
+
+    def test_bare_domain_accepted(self):
+        self.assertEqual(
+            _validate_linear_endpoint("https://linear.app/graphql"),
+            "https://linear.app/graphql",
+        )
+
+    def test_http_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint("http://api.linear.app/graphql"))
+
+    def test_arbitrary_domain_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint("https://evil.com/graphql"))
+
+    def test_lookalike_domain_rejected(self):
+        self.assertIsNone(
+            _validate_linear_endpoint("https://notlinear.app/graphql")
+        )
+
+    def test_suffix_attack_rejected(self):
+        self.assertIsNone(
+            _validate_linear_endpoint("https://evil.com.linear.app.attacker.com/graphql")
+        )
+
+    def test_empty_string_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint(""))
+
+    def test_no_scheme_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint("api.linear.app/graphql"))
+
+
+class TestExecuteLinearGraphqlEndpointValidation(unittest.TestCase):
+    """Ensure execute_linear_graphql rejects invalid LINEAR_ENDPOINT values."""
+
+    def test_rejects_evil_endpoint(self):
+        original = os.environ.get("LINEAR_ENDPOINT")
+        os.environ["LINEAR_ENDPOINT"] = "https://evil.com/steal"
+        try:
+            result = execute_linear_graphql({"query": "{ viewer { id } }"})
+            self.assertFalse(result["success"])
+            self.assertIn("rejected", result["contentItems"][0]["text"])
+        finally:
+            if original is None:
+                os.environ.pop("LINEAR_ENDPOINT", None)
+            else:
+                os.environ["LINEAR_ENDPOINT"] = original
+
+    def test_rejects_http_endpoint(self):
+        original = os.environ.get("LINEAR_ENDPOINT")
+        os.environ["LINEAR_ENDPOINT"] = "http://api.linear.app/graphql"
+        try:
+            result = execute_linear_graphql({"query": "{ viewer { id } }"})
+            self.assertFalse(result["success"])
+            self.assertIn("rejected", result["contentItems"][0]["text"])
+        finally:
+            if original is None:
+                os.environ.pop("LINEAR_ENDPOINT", None)
+            else:
+                os.environ["LINEAR_ENDPOINT"] = original
 
 
 class TestIsRateLimit(unittest.TestCase):

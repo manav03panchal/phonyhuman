@@ -62,6 +62,33 @@ def send_notification(method, params=None):
 
 
 # ---------------------------------------------------------------------------
+# Linear endpoint validation
+# ---------------------------------------------------------------------------
+
+def _validate_linear_endpoint(url):
+    """Validate that a Linear endpoint URL is HTTPS on the linear.app domain.
+
+    Returns ``url`` if valid, or ``None`` if the endpoint should be rejected.
+    An error message is logged on rejection.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        log_error(f"LINEAR_ENDPOINT is not a valid URL: {url!r}")
+        return None
+    if parsed.scheme != "https":
+        log_error(f"LINEAR_ENDPOINT must use HTTPS (got {parsed.scheme!r})")
+        return None
+    host = (parsed.hostname or "").lower()
+    if host != "linear.app" and not host.endswith(".linear.app"):
+        log_error(
+            f"LINEAR_ENDPOINT must be on the linear.app domain (got {host!r})"
+        )
+        return None
+    return url
+
+
+# ---------------------------------------------------------------------------
 # Linear GraphQL tool (mirrors Symphony's DynamicTool)
 # ---------------------------------------------------------------------------
 
@@ -98,7 +125,21 @@ def execute_linear_graphql(arguments):
             })}],
         }
 
-    endpoint = os.environ.get("LINEAR_ENDPOINT", "https://api.linear.app/graphql")
+    raw_endpoint = os.environ.get("LINEAR_ENDPOINT", "https://api.linear.app/graphql")
+    endpoint = _validate_linear_endpoint(raw_endpoint)
+    if endpoint is None:
+        return {
+            "success": False,
+            "contentItems": [{"type": "inputText", "text": json.dumps({
+                "error": {
+                    "message": (
+                        "LINEAR_ENDPOINT rejected — must be HTTPS on the "
+                        "linear.app domain."
+                    )
+                }
+            })}],
+        }
+
     body = json.dumps({"query": query, "variables": variables}).encode()
     req = urllib.request.Request(
         endpoint,
