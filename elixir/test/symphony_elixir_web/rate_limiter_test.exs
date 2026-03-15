@@ -257,11 +257,14 @@ defmodule SymphonyElixirWeb.RateLimiterTest do
         :ets.delete_all_objects(:symphony_rate_limiter)
       end
 
-      original = System.get_env("RATE_LIMIT_RPM")
+      original_rpm = System.get_env("RATE_LIMIT_RPM")
+      original_proxies = System.get_env("TRUSTED_PROXY_IPS")
       System.put_env("RATE_LIMIT_RPM", "3")
+      System.put_env("TRUSTED_PROXY_IPS", "127.0.0.1")
 
       on_exit(fn ->
-        restore_env("RATE_LIMIT_RPM", original)
+        restore_env("RATE_LIMIT_RPM", original_rpm)
+        restore_env("TRUSTED_PROXY_IPS", original_proxies)
 
         if :ets.whereis(:symphony_rate_limiter) != :undefined do
           :ets.delete_all_objects(:symphony_rate_limiter)

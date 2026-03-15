@@ -7,6 +7,12 @@
 # The orchestrator reads its configuration from WORKFLOW.md, which must be
 # mounted into the container.  Environment variables referenced inside
 # WORKFLOW.md (e.g. $LINEAR_API_KEY) are passed through via the env_file.
+#
+# SECURITY: Secrets (LINEAR_API_KEY, SECRET_KEY_BASE) are passed as environment
+# variables below for development convenience. For production deployments, use
+# Docker secrets (https://docs.docker.com/compose/how-tos/use-secrets/) or an
+# external secrets manager (e.g. Vault, AWS Secrets Manager) instead of
+# plaintext environment variables.
 
 services:
   orchestrator:

@@ -63,6 +63,7 @@ defmodule SymphonyElixir.Orchestrator do
       fleet_pause_reason: nil,
       fleet_pause_attempt: 0,
       fleet_probe_active: false,
+      fleet_probe_started_at: nil,
       consecutive_limit_failures: 0,
       last_limit_failure_at: nil
     ]
@@ -192,7 +193,14 @@ defmodule SymphonyElixir.Orchestrator do
       ) do
     case Map.get(running, issue_id) do
       nil ->
-        {:noreply, state}
+        if Map.has_key?(state.completed, issue_id) do
+          Logger.debug("Late agent_worker_update for completed issue_id=#{issue_id}; applying final token delta")
+          dummy_entry = %{agent_last_reported_input_tokens: 0, agent_last_reported_output_tokens: 0, agent_last_reported_total_tokens: 0}
+          token_delta = extract_token_delta(dummy_entry, update)
+          {:noreply, apply_agent_token_delta(state, token_delta)}
+        else
+          {:noreply, state}
+        end
 
       running_entry ->
         {updated_running_entry, token_delta} = integrate_agent_update(running_entry, update)
@@ -227,8 +235,16 @@ defmodule SymphonyElixir.Orchestrator do
       {:noreply, state}
     else
       if state.fleet_probe_active do
-        # Probe already running, wait for it
-        {:noreply, state}
+        probe_timeout_ms = Config.fleet_probe_timeout_ms()
+
+        if probe_stalled?(state, probe_timeout_ms) do
+          Logger.warning("Fleet probe stalled after #{probe_timeout_ms}ms; force-killing and rescheduling")
+          state = force_kill_stalled_probe(state)
+          {:noreply, extend_fleet_pause(state)}
+        else
+          Process.send_after(self(), :fleet_pause_expired, probe_timeout_ms)
+          {:noreply, state}
+        end
       else
         Logger.info("Fleet pause expired; dispatching probe agent")
         {:noreply, dispatch_probe_agent(state)}
@@ -820,7 +836,8 @@ defmodule SymphonyElixir.Orchestrator do
             timer_ref: timer_ref,
             due_at_ms: due_at_ms,
             identifier: identifier,
-            error: error
+            error: error,
+            last_attempt_at: DateTime.utc_now()
           })
     }
   end
@@ -886,7 +903,17 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp cleanup_issue_workspace(identifier) when is_binary(identifier) do
-    Workspace.remove_issue_workspaces(identifier)
+    safe_id = String.replace(identifier, ~r/[^a-zA-Z0-9._-]/, "_")
+    workspace = Path.join(Config.workspace_root(), safe_id)
+
+    case Workspace.remove(workspace) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason, _} ->
+        Logger.warning("Workspace cleanup failed for identifier=#{identifier} reason=#{inspect(reason)}")
+        :ok
+    end
   end
 
   defp cleanup_issue_workspace(_identifier), do: :ok
@@ -938,7 +965,13 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp prune_stale_entries(%State{} = state) do
     now = DateTime.utc_now()
-    %{state | completed: prune_map(state.completed, now, @completed_ttl_ms), claimed: prune_claimed(state, now)}
+
+    %{
+      state
+      | completed: prune_map(state.completed, now, @completed_ttl_ms),
+        claimed: prune_claimed(state, now),
+        retry_attempts: prune_retry_attempts(state.retry_attempts, now, @completed_ttl_ms)
+    }
   end
 
   defp prune_map(map, now, ttl_ms) when is_map(map) do
@@ -951,6 +984,15 @@ defmodule SymphonyElixir.Orchestrator do
     Map.filter(claimed, fn {id, inserted_at} ->
       Map.has_key?(running, id) or Map.has_key?(retries, id) or
         (is_struct(inserted_at, DateTime) and DateTime.diff(now, inserted_at, :millisecond) < @claimed_ttl_ms)
+    end)
+  end
+
+  defp prune_retry_attempts(retry_attempts, now, ttl_ms) when is_map(retry_attempts) do
+    Map.filter(retry_attempts, fn {_id, entry} ->
+      case Map.get(entry, :last_attempt_at) do
+        %DateTime{} = ts -> DateTime.diff(now, ts, :millisecond) < ttl_ms
+        _ -> true
+      end
     end)
   end
 
@@ -1514,7 +1556,8 @@ defmodule SymphonyElixir.Orchestrator do
       | fleet_paused_until: paused_until,
         fleet_pause_reason: reason,
         fleet_pause_attempt: attempt,
-        fleet_probe_active: false
+        fleet_probe_active: false,
+        fleet_probe_started_at: nil
     }
   end
 
@@ -1527,6 +1570,7 @@ defmodule SymphonyElixir.Orchestrator do
         fleet_pause_reason: nil,
         fleet_pause_attempt: 0,
         fleet_probe_active: false,
+        fleet_probe_started_at: nil,
         consecutive_limit_failures: 0,
         last_limit_failure_at: nil
     }
@@ -1728,7 +1772,8 @@ defmodule SymphonyElixir.Orchestrator do
           | running: running,
             claimed: Map.put(state.claimed, issue.id, DateTime.utc_now()),
             retry_attempts: Map.delete(state.retry_attempts, issue.id),
-            fleet_probe_active: true
+            fleet_probe_active: true,
+            fleet_probe_started_at: DateTime.utc_now()
         }
 
       {:error, reason} ->
@@ -1740,6 +1785,30 @@ defmodule SymphonyElixir.Orchestrator do
   defp reschedule_fleet_probe(%State{} = state) do
     Process.send_after(self(), :fleet_pause_expired, 60_000)
     state
+  end
+
+  defp probe_stalled?(%State{fleet_probe_started_at: nil}, _timeout_ms), do: true
+
+  defp probe_stalled?(%State{fleet_probe_started_at: started_at}, timeout_ms) do
+    DateTime.diff(DateTime.utc_now(), started_at, :millisecond) >= timeout_ms
+  end
+
+  defp force_kill_stalled_probe(%State{running: running} = state) do
+    case Enum.find(running, fn {_id, entry} -> Map.get(entry, :is_fleet_probe, false) end) do
+      {issue_id, %{pid: pid, ref: ref}} ->
+        if is_pid(pid), do: terminate_task(pid)
+        if is_reference(ref), do: Process.demonitor(ref, [:flush])
+
+        %{
+          state
+          | running: Map.delete(running, issue_id),
+            fleet_probe_active: false,
+            fleet_probe_started_at: nil
+        }
+
+      nil ->
+        %{state | fleet_probe_active: false, fleet_probe_started_at: nil}
+    end
   end
 
   # --- End fleet pause logic ---
@@ -1884,6 +1953,10 @@ defmodule SymphonyElixir.Orchestrator do
       if is_integer(next_total) and next_total >= prev_reported do
         next_total - prev_reported
       else
+        if is_integer(next_total) and next_total < prev_reported do
+          Logger.debug("Token delta clamped to 0: dimension=#{token_key} prev_reported=#{prev_reported} next_reported=#{next_total}")
+        end
+
         0
       end
 

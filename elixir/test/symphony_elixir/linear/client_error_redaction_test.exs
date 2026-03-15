@@ -5,6 +5,17 @@ defmodule SymphonyElixir.Linear.ClientErrorRedactionTest do
 
   alias SymphonyElixir.Linear.Client
 
+  # These tests need LINEAR_API_KEY set so graphql_headers/0 doesn't bail
+  # before reaching the mock request function.
+  setup do
+    prev = System.get_env("LINEAR_API_KEY")
+    System.put_env("LINEAR_API_KEY", "lin_api_test_token_for_redaction_tests")
+    on_exit(fn ->
+      if prev, do: System.put_env("LINEAR_API_KEY", prev), else: System.delete_env("LINEAR_API_KEY")
+    end)
+    :ok
+  end
+
   describe "graphql/3 error logging" do
     test "redacts Authorization header from error reason in logs" do
       headers_with_auth = [{"Authorization", "Bearer lin_api_secret_token"}, {"Content-Type", "application/json"}]

@@ -444,9 +444,37 @@ defmodule SymphonyElixir.TelemetryCollector.Router do
     length: 1_000_000
   )
 
+  plug(:verify_telemetry_auth)
   plug(SymphonyElixirWeb.Plugs.RateLimiter, namespace: :otel)
   plug(:match)
   plug(:dispatch)
+
+  defp verify_telemetry_auth(conn, _opts) do
+    case System.get_env("TELEMETRY_AUTH_TOKEN") do
+      nil ->
+        conn
+
+      "" ->
+        conn
+
+      expected_token ->
+        case Plug.Conn.get_req_header(conn, "authorization") do
+          ["Bearer " <> provided_token] ->
+            if Plug.Crypto.secure_compare(provided_token, expected_token) do
+              conn
+            else
+              conn
+              |> Plug.Conn.send_resp(401, "Unauthorized")
+              |> Plug.Conn.halt()
+            end
+
+          _ ->
+            conn
+            |> Plug.Conn.send_resp(401, "Unauthorized")
+            |> Plug.Conn.halt()
+        end
+    end
+  end
 
   post "/v1/metrics" do
     collector = conn.private[:collector] || SymphonyElixir.TelemetryCollector

@@ -43,6 +43,7 @@ defmodule SymphonyElixir.Config do
   @default_fleet_pause_max_ms 14_400_000
   @default_fleet_pause_pattern_window_ms 60_000
   @default_fleet_pause_pattern_threshold 3
+  @default_fleet_probe_timeout_ms 300_000
   @default_agent_approval_policy %{
     "reject" => %{
       "sandbox_approval" => true,
@@ -128,6 +129,10 @@ defmodule SymphonyElixir.Config do
                                  fleet_pause_pattern_threshold: [
                                    type: :pos_integer,
                                    default: @default_fleet_pause_pattern_threshold
+                                 ],
+                                 fleet_probe_timeout_ms: [
+                                   type: :pos_integer,
+                                   default: @default_fleet_probe_timeout_ms
                                  ],
                                  shutdown_timeout_ms: [
                                    type: :pos_integer,
@@ -344,6 +349,11 @@ defmodule SymphonyElixir.Config do
   @spec fleet_pause_pattern_threshold() :: pos_integer()
   def fleet_pause_pattern_threshold do
     get_in(validated_workflow_options(), [:agent, :fleet_pause_pattern_threshold])
+  end
+
+  @spec fleet_probe_timeout_ms() :: pos_integer()
+  def fleet_probe_timeout_ms do
+    get_in(validated_workflow_options(), [:agent, :fleet_probe_timeout_ms])
   end
 
   @spec shutdown_timeout_ms() :: pos_integer()
@@ -641,6 +651,7 @@ defmodule SymphonyElixir.Config do
     |> put_if_present(:fleet_pause_max_ms, positive_integer_value(Map.get(section, "fleet_pause_max_ms")))
     |> put_if_present(:fleet_pause_pattern_window_ms, positive_integer_value(Map.get(section, "fleet_pause_pattern_window_ms")))
     |> put_if_present(:fleet_pause_pattern_threshold, positive_integer_value(Map.get(section, "fleet_pause_pattern_threshold")))
+    |> put_if_present(:fleet_probe_timeout_ms, positive_integer_value(Map.get(section, "fleet_probe_timeout_ms")))
     |> put_if_present(:shutdown_timeout_ms, positive_integer_value(Map.get(section, "shutdown_timeout_ms")))
   end
 

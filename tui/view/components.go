@@ -143,8 +143,14 @@ func miniBar(width int, pct float64) string {
 
 // ─── Agents Table ───────────────────────────────────────────────────
 
+const minTableWidth = 40
+
 // RenderAgentsTable renders the main k9s-style table.
 func RenderAgentsTable(agents []types.Agent, width, height int, selectedRow ...int) string {
+	if width < minTableWidth {
+		return cellDim.Render("Terminal too narrow")
+	}
+
 	if len(agents) == 0 {
 		empty := cellDim.Render("  No active agents. Waiting for issues...")
 		pad := ""

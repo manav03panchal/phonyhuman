@@ -347,6 +347,10 @@ defmodule SymphonyElixir.ExtensionsTest do
                %{
                  "issue_id" => "issue-http",
                  "issue_identifier" => "MT-HTTP",
+                 "title" => nil,
+                 "description" => nil,
+                 "url" => nil,
+                 "labels" => [],
                  "state" => "In Progress",
                  "session_id" => "thread-http",
                  "turn_count" => 7,
@@ -404,6 +408,10 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert issue_payload == %{
              "issue_identifier" => "MT-HTTP",
              "issue_id" => "issue-http",
+             "title" => nil,
+             "description" => nil,
+             "url" => nil,
+             "labels" => [],
              "status" => "running",
              "attempts" => %{"restart_count" => 0, "current_retry_attempt" => 0},
              "running" => %{

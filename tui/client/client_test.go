@@ -300,7 +300,7 @@ func TestPoll_SendsStatesAndStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 
-	c.Poll(ctx, 50*time.Millisecond, ch)
+	c.Poll(ctx, 50*time.Millisecond, ch, nil)
 
 	if len(ch) == 0 {
 		t.Fatal("expected at least one state on channel")
@@ -325,7 +325,7 @@ func TestPoll_ContextCancelledImmediately(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		c.Poll(ctx, 50*time.Millisecond, ch)
+		c.Poll(ctx, 50*time.Millisecond, ch, nil)
 		close(done)
 	}()
 

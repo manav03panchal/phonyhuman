@@ -244,6 +244,7 @@ jobs:
 
       - name: Sign checksums with GPG
         run: |
+          echo "::add-mask::$GPG_PASSPHRASE"
           gpg --batch --yes --pinentry-mode loopback \
             --passphrase "$GPG_PASSPHRASE" \
             --detach-sign --armor checksums.txt

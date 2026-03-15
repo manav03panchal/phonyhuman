@@ -42,6 +42,18 @@ def _validate_endpoint(url):
         die(
             f"LINEAR_ENDPOINT must be on the linear.app domain (got {host!r})"
         )
+    if parsed.port and parsed.port != 443:
+        die("LINEAR_ENDPOINT must use default HTTPS port")
+    # Reject internal/loopback addresses
+    import socket
+    try:
+        addr = socket.getaddrinfo(host, None)[0][4][0]
+        import ipaddress
+        ip = ipaddress.ip_address(addr)
+        if ip.is_loopback or ip.is_private or ip.is_reserved:
+            die(f"LINEAR_ENDPOINT must not resolve to an internal IP ({addr})")
+    except (socket.gaierror, ValueError, OSError):
+        pass  # DNS resolution may not be available at import time; allow it
     return url
 
 

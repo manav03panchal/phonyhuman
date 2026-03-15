@@ -140,7 +140,8 @@ if [ -z "$TARBALL_URL" ]; then
 fi
 
 # ── Download and extract ─────────────────────────────────────────────
-INSTALL_TMPDIR=$(mktemp -d)
+INSTALL_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/phonyhuman-install-XXXXXXXXXX")
+chmod 700 "$INSTALL_TMPDIR"
 trap 'rm -rf "$INSTALL_TMPDIR"' EXIT
 
 echo "  Downloading..."

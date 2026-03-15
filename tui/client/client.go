@@ -129,13 +129,25 @@ func (c *Client) FetchHealth(ctx context.Context) (*types.Health, error) {
 // Poll sends orchestrator state snapshots on the provided channel at the given
 // interval. It blocks until the context is cancelled. The channel is not closed
 // by Poll; the caller owns the channel lifetime.
-func (c *Client) Poll(ctx context.Context, interval time.Duration, ch chan<- *types.State) {
+// If errCh is non-nil, poll errors are sent on it instead of being silently
+// discarded. If errCh is nil, errors are skipped (backward-compatible).
+func (c *Client) Poll(ctx context.Context, interval time.Duration, ch chan<- *types.State, errCh chan<- error) {
 	if interval <= 0 {
 		interval = c.pollInterval
 	}
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	sendErr := func(err error) {
+		if errCh == nil {
+			return
+		}
+		select {
+		case errCh <- err:
+		case <-ctx.Done():
+		}
+	}
 
 	// Send an initial state immediately.
 	if state, err := c.FetchState(ctx); err == nil {
@@ -144,6 +156,8 @@ func (c *Client) Poll(ctx context.Context, interval time.Duration, ch chan<- *ty
 		case <-ctx.Done():
 			return
 		}
+	} else {
+		sendErr(err)
 	}
 
 	for {
@@ -153,7 +167,8 @@ func (c *Client) Poll(ctx context.Context, interval time.Duration, ch chan<- *ty
 		case <-ticker.C:
 			state, err := c.FetchState(ctx)
 			if err != nil {
-				continue // transient errors are silently skipped
+				sendErr(err)
+				continue
 			}
 			select {
 			case ch <- state:

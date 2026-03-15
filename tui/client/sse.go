@@ -85,6 +85,13 @@ func (s *SSESubscription) Events() <-chan SSEEvent {
 	return s.events
 }
 
+// Done returns a channel that is closed when the subscription's context
+// is cancelled. Callers should select on this alongside Events() to detect
+// shutdown without relying on the events channel being closed.
+func (s *SSESubscription) Done() <-chan struct{} {
+	return s.ctx.Done()
+}
+
 // Close shuts down the SSE subscription.
 func (s *SSESubscription) Close() {
 	s.cancel()
@@ -94,7 +101,7 @@ func (s *SSESubscription) Close() {
 // with exponential backoff on any error. A 404 response terminates the loop
 // so the caller can fall back to polling.
 func (s *SSESubscription) loop() {
-	defer close(s.events)
+	defer s.cancel()
 
 	base := s.minBackoff
 	if base == 0 {
@@ -168,12 +175,17 @@ func (s *SSESubscription) connect() error {
 	// If no data arrives within the idle timeout the connection is considered
 	// dead and connCtx is cancelled, which interrupts the scanner read.
 	idleTimer := time.NewTimer(s.idleTimeout)
-	defer idleTimer.Stop()
+	done := make(chan struct{})
+	defer func() {
+		close(done)
+		idleTimer.Stop()
+	}()
 	go func() {
 		select {
 		case <-idleTimer.C:
 			connCancel()
 		case <-connCtx.Done():
+		case <-done:
 		}
 	}()
 

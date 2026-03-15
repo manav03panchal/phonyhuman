@@ -68,9 +68,10 @@ type Model struct {
 	cursor      int
 	stateAt     time.Time
 	prompt      promptMode
-	view        viewMode
-	detailAgent *types.Agent
-	statusText  string // transient status message (errors, etc.)
+	view          viewMode
+	detailAgentID string      // ID of the agent shown in detail view
+	detailExtra   types.Agent // preserved issue detail fields from API fetch
+	statusText    string      // transient status message (errors, etc.)
 	metrics     types.AgentMetrics
 	limits      []types.RateLimit
 	project     types.ProjectInfo
@@ -163,19 +164,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 
 	case issueDetailMsg:
-		if msg.err == nil && msg.detail != nil && m.detailAgent != nil {
+		if msg.err == nil && msg.detail != nil && m.detailAgentID != "" {
 			d := msg.detail
 			if d.Title != nil && *d.Title != "" {
-				m.detailAgent.Title = *d.Title
+				m.detailExtra.Title = *d.Title
 			}
 			if d.Description != nil && *d.Description != "" {
-				m.detailAgent.Description = *d.Description
+				m.detailExtra.Description = *d.Description
 			}
 			if d.URL != nil && *d.URL != "" {
-				m.detailAgent.URL = *d.URL
+				m.detailExtra.URL = *d.URL
 			}
 			if len(d.Labels) > 0 {
-				m.detailAgent.Labels = d.Labels
+				m.detailExtra.Labels = d.Labels
 			}
 		}
 		return m, nil
@@ -193,8 +194,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the dashboard.
 func (m Model) View() string {
-	if m.view == viewDetail && m.detailAgent != nil {
-		return view.RenderDetailView(*m.detailAgent, m.width, m.height, m.statusText)
+	if m.view == viewDetail && m.detailAgentID != "" {
+		if a, ok := m.findDetailAgent(); ok {
+			return view.RenderDetailView(a, m.width, m.height, m.statusText)
+		}
 	}
 	return view.RenderDashboard(view.DashboardData{
 		Width:        m.width,
@@ -221,17 +224,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "esc", "backspace":
 			m.view = viewDashboard
-			m.detailAgent = nil
+			m.detailAgentID = ""
+			m.detailExtra = types.Agent{}
 			m.statusText = ""
 		case "a":
-			if m.detailAgent != nil {
+			if a, ok := m.findDetailAgent(); ok {
 				m.statusText = ""
-				return m, openAgentTmux(*m.detailAgent)
+				return m, openAgentTmux(a)
 			}
 		case "q", "ctrl+c":
 			m.prompt = promptConfirmQuit
 			m.view = viewDashboard
-			m.detailAgent = nil
+			m.detailAgentID = ""
+			m.detailExtra = types.Agent{}
 			m.statusText = ""
 		}
 		return m, nil
@@ -288,11 +293,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if len(m.agents) > 0 && m.cursor < len(m.agents) {
-			agent := m.agents[m.cursor]
-			m.detailAgent = &agent
+			m.detailAgentID = m.agents[m.cursor].ID
+			m.detailExtra = types.Agent{}
 			m.view = viewDetail
 			m.statusText = ""
-			return m, m.fetchIssueDetail(agent.ID)
+			return m, m.fetchIssueDetail(m.detailAgentID)
 		}
 	case "p":
 		if m.state != nil && m.state.FleetStatus == "paused" {
@@ -474,35 +479,44 @@ func (m *Model) syncMetrics() {
 		m.cursor = len(m.agents) - 1
 	}
 
-	// Keep detail view in sync with latest agent data
-	if m.detailAgent != nil {
+	// Exit detail view if the agent is no longer in the list
+	if m.detailAgentID != "" {
 		found := false
 		for i := range m.agents {
-			if m.agents[i].ID == m.detailAgent.ID {
-				// Preserve issue detail fields from API fetch if state data is empty
-				prev := m.detailAgent
-				m.detailAgent = &m.agents[i]
-				if m.detailAgent.Title == "" && prev.Title != "" {
-					m.detailAgent.Title = prev.Title
-				}
-				if m.detailAgent.Description == "" && prev.Description != "" {
-					m.detailAgent.Description = prev.Description
-				}
-				if m.detailAgent.URL == "" && prev.URL != "" {
-					m.detailAgent.URL = prev.URL
-				}
-				if len(m.detailAgent.Labels) == 0 && len(prev.Labels) > 0 {
-					m.detailAgent.Labels = prev.Labels
-				}
+			if m.agents[i].ID == m.detailAgentID {
 				found = true
 				break
 			}
 		}
 		if !found {
-			m.detailAgent = nil
+			m.detailAgentID = ""
+			m.detailExtra = types.Agent{}
 			m.view = viewDashboard
 		}
 	}
+}
+
+// findDetailAgent looks up the detail agent by ID in the current agents slice
+// and merges any preserved issue detail fields from the API fetch.
+func (m Model) findDetailAgent() (types.Agent, bool) {
+	for _, a := range m.agents {
+		if a.ID == m.detailAgentID {
+			if a.Title == "" && m.detailExtra.Title != "" {
+				a.Title = m.detailExtra.Title
+			}
+			if a.Description == "" && m.detailExtra.Description != "" {
+				a.Description = m.detailExtra.Description
+			}
+			if a.URL == "" && m.detailExtra.URL != "" {
+				a.URL = m.detailExtra.URL
+			}
+			if len(a.Labels) == 0 && len(m.detailExtra.Labels) > 0 {
+				a.Labels = m.detailExtra.Labels
+			}
+			return a, true
+		}
+	}
+	return types.Agent{}, false
 }
 
 func (m Model) fetchIssueDetail(identifier string) tea.Cmd {
@@ -539,15 +553,20 @@ func tickCmd() tea.Cmd {
 }
 
 // waitForSSE returns a Cmd that blocks until the next SSE event arrives.
-// When the event channel closes it returns sseClosedMsg to trigger polling fallback.
+// It selects on both the events channel and the subscription's Done channel
+// to detect shutdown without relying on the events channel being closed.
 func waitForSSE(sub *client.SSESubscription) tea.Cmd {
 	return func() tea.Msg {
-		event, ok := <-sub.Events()
-		if !ok {
+		select {
+		case event, ok := <-sub.Events():
+			if !ok {
+				return sseClosedMsg{}
+			}
+			state, err := client.ParseStateEvent(event.Data)
+			return stateMsg{state: state, err: err}
+		case <-sub.Done():
 			return sseClosedMsg{}
 		}
-		state, err := client.ParseStateEvent(event.Data)
-		return stateMsg{state: state, err: err}
 	}
 }
 

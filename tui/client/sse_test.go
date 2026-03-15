@@ -82,12 +82,14 @@ func TestSubscribeSSE_FallbackOn404(t *testing.T) {
 	defer sub.Close()
 
 	select {
-	case _, ok := <-sub.Events():
+	case <-sub.Done():
+		// Loop exited (404 detected) — subscription is done.
+	case ev, ok := <-sub.Events():
 		if ok {
-			t.Fatal("expected channel to close on 404, but received an event")
+			t.Fatalf("expected no events on 404, but received %+v", ev)
 		}
 	case <-ctx.Done():
-		t.Fatal("timed out waiting for SSE channel close")
+		t.Fatal("timed out waiting for SSE subscription to stop on 404")
 	}
 }
 
@@ -202,15 +204,11 @@ func TestSubscribeSSE_CloseStopsSubscription(t *testing.T) {
 
 	timer := time.NewTimer(3 * time.Second)
 	defer timer.Stop()
-	for {
-		select {
-		case _, ok := <-sub.Events():
-			if !ok {
-				return
-			}
-		case <-timer.C:
-			t.Fatal("channel did not close after Close()")
-		}
+	select {
+	case <-sub.Done():
+		// Context cancelled — subscription stopped.
+	case <-timer.C:
+		t.Fatal("subscription did not stop after Close()")
 	}
 }
 
@@ -290,15 +288,11 @@ func TestSSE_ParentContextCancelsGoroutine(t *testing.T) {
 
 	timer := time.NewTimer(3 * time.Second)
 	defer timer.Stop()
-	for {
-		select {
-		case _, ok := <-sub.Events():
-			if !ok {
-				return // channel closed — goroutine terminated as expected
-			}
-		case <-timer.C:
-			t.Fatal("SSE goroutine did not terminate after parent context cancellation")
-		}
+	select {
+	case <-sub.Done():
+		// Context cancelled — goroutine terminated as expected.
+	case <-timer.C:
+		t.Fatal("SSE goroutine did not terminate after parent context cancellation")
 	}
 }
 

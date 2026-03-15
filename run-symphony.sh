@@ -320,7 +320,8 @@ if [[ ! -x "$SYMPHONY_BIN" ]]; then
 fi
 
 # ── Parse config and generate workflow ────────────────────────────────
-WORKFLOW_FILE=$(mktemp /tmp/symphony-workflow-XXXXXX.md)
+WORKFLOW_FILE=$(mktemp "${TMPDIR:-/tmp}/symphony-workflow-XXXXXXXXXX.md")
+chmod 600 "$WORKFLOW_FILE"
 trap 'rm -f "$WORKFLOW_FILE"' EXIT
 
 OUTPUT=$(generate_workflow "$CONFIG_FILE" "$WORKFLOW_FILE" 2>&1)

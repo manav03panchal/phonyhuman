@@ -310,12 +310,16 @@ def is_allowed_otel_endpoint(endpoint, allowed_hosts=None):
     """Return True if *endpoint* points to localhost or an allowed host.
 
     *allowed_hosts* is an optional set of additional hostnames/IPs to allow.
+    Only ``http`` and ``https`` schemes are accepted; query parameters,
+    fragments, and path components are stripped before the check.
     """
     try:
         parsed = urllib.parse.urlparse(endpoint)
-        host = (parsed.hostname or "").lower()
     except Exception:
         return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower()
     allowed = _LOCALHOST_HOSTS | (allowed_hosts or set())
     return host in allowed
 
@@ -444,7 +448,11 @@ class ClaudeRunner:
                     allowed_raw = os.environ.get("SYMPHONY_OTEL_ALLOWED_HOSTS", "")
                     allowed_hosts = {h.strip() for h in allowed_raw.split(",") if h.strip()}
                     if is_allowed_otel_endpoint(custom_endpoint, allowed_hosts):
-                        endpoint = custom_endpoint
+                        # Strip query, fragment, and path to prevent endpoint manipulation
+                        sanitized = urllib.parse.urlparse(custom_endpoint)
+                        endpoint = urllib.parse.urlunparse((
+                            sanitized.scheme, sanitized.netloc, sanitized.path, "", "", ""
+                        ))
                     else:
                         log_error(
                             f"SYMPHONY_OTEL_ENDPOINT rejected — host is not localhost or in "

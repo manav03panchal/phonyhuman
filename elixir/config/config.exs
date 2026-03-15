@@ -10,6 +10,6 @@ config :symphony_elixir, SymphonyElixirWeb.Endpoint,
     layout: false
   ],
   pubsub_server: SymphonyElixir.PubSub,
-  live_view: [signing_salt: Base.encode64(:crypto.strong_rand_bytes(32))]
+  live_view: [signing_salt: "compile_time_placeholder"]
 
 import_config "#{config_env()}.exs"

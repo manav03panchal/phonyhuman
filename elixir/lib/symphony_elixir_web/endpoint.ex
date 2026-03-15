@@ -5,17 +5,17 @@ defmodule SymphonyElixirWeb.Endpoint do
 
   use Phoenix.Endpoint, otp_app: :symphony_elixir
 
-  @session_options [
+  @compile_session_options [
     store: :cookie,
     key: "_symphony_elixir_key",
-    signing_salt: :crypto.strong_rand_bytes(32) |> Base.encode64(),
-    encryption_salt: :crypto.strong_rand_bytes(32) |> Base.encode64(),
+    signing_salt: "compile_time_placeholder",
+    encryption_salt: "compile_time_placeholder",
     same_site: "Lax",
     secure: Mix.env() == :prod
   ]
 
   socket("/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: @session_options]],
+    websocket: [connect_info: [session: @compile_session_options]],
     longpoll: false
   )
 
@@ -30,6 +30,19 @@ defmodule SymphonyElixirWeb.Endpoint do
   )
 
   plug(Plug.Head)
-  plug(Plug.Session, @session_options)
+  plug(:runtime_session)
   plug(SymphonyElixirWeb.Router)
+
+  @doc false
+  def runtime_session(conn, _opts) do
+    config = Application.get_env(:symphony_elixir, __MODULE__, [])
+
+    session_opts =
+      @compile_session_options
+      |> Keyword.put(:signing_salt, config[:session_signing_salt] || "dev_signing_salt")
+      |> Keyword.put(:encryption_salt, config[:session_encryption_salt] || "dev_encryption_salt")
+
+    opts = Plug.Session.init(session_opts)
+    Plug.Session.call(conn, opts)
+  end
 end

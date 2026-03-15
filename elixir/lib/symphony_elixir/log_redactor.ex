@@ -26,11 +26,15 @@ defmodule SymphonyElixir.LogRedactor do
     ghu_\S+                 |
     sk-\S+                  |
     Bearer\s+\S+            |
+    Authorization:\S+       |
     token=\S+               |
     api_key=\S+             |
     [A-Z_]*API_KEY=\S+      |
     password=\S+            |
     password:\s*\S+         |
+    "password"\s*:\s*"[^"]*"  |
+    "secret"\s*:\s*"[^"]*"   |
+    "api_key"\s*:\s*"[^"]*"  |
     "[Aa]uthorization",\s*"[^"]*"
   /x
 
