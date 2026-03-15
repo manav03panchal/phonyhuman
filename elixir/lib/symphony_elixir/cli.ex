@@ -75,7 +75,7 @@ defmodule SymphonyElixir.CLI do
 
   defp format_start_error(workflow_path, reason) do
     if eaddrinuse_error?(reason) do
-      port = detect_port_from_error(reason) || 4318
+      port = 4318
       pid_hint = detect_stale_pid(port)
 
       [
@@ -101,8 +101,6 @@ defmodule SymphonyElixir.CLI do
   end
 
   defp eaddrinuse_error?(_term), do: false
-
-  defp detect_port_from_error(_reason), do: nil
 
   defp detect_stale_pid(port) do
     case System.cmd("lsof", ["-t", "-i", ":#{port}"], stderr_to_stdout: true) do

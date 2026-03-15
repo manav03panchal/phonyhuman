@@ -44,19 +44,6 @@ func WithTimeout(d time.Duration) Option {
 	}
 }
 
-// WithPollInterval sets the default polling interval for Poll.
-func WithPollInterval(d time.Duration) Option {
-	return func(c *Client) {
-		c.pollInterval = d
-	}
-}
-
-// WithHTTPClient replaces the underlying http.Client.
-func WithHTTPClient(hc *http.Client) Option {
-	return func(c *Client) {
-		c.httpClient = hc
-	}
-}
 
 // New creates a Client for the given base URL.
 func New(baseURL string, opts ...Option) (*Client, error) {

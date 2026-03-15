@@ -7,8 +7,6 @@ defmodule SymphonyElixir.AgentSupervisor do
   restart limits than the main application supervisor.
   """
 
-  require Logger
-
   @max_restarts 10
   @max_seconds 60
 
