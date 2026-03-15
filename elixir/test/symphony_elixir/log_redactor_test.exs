@@ -48,6 +48,20 @@ defmodule SymphonyElixir.LogRedactorTest do
       refute result =~ "secret123"
     end
 
+    test "redacts generic api_key= query parameters" do
+      assert LogRedactor.redact("url?api_key=secret123&foo=bar") == "url?[REDACTED]"
+    end
+
+    test "redacts ANTHROPIC_API_KEY env var pattern" do
+      assert LogRedactor.redact("ANTHROPIC_API_KEY=custom-key-value") == "[REDACTED]"
+    end
+
+    test "redacts other *API_KEY= env var patterns" do
+      assert LogRedactor.redact("MY_API_KEY=some-secret") == "[REDACTED]"
+      assert LogRedactor.redact("LINEAR_API_KEY=custom-val") == "[REDACTED]"
+      assert LogRedactor.redact("API_KEY=bare-value") == "[REDACTED]"
+    end
+
     test "passes non-sensitive content through unchanged" do
       input = "Agent session started for issue_id=abc issue_identifier=HUM-40 session_id=123"
       assert LogRedactor.redact(input) == input
