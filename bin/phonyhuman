@@ -178,7 +178,7 @@ find_pid_on_port() {
     # 3. ss — modern Linux (iproute2)
     if command -v ss &>/dev/null; then
         pids=$(ss -tlnp "sport = :$port" 2>/dev/null \
-            | grep -oP 'pid=\K[0-9]+' || true)
+            | grep -o 'pid=[0-9]*' | cut -d= -f2 || true)
         if [[ -n "$pids" ]]; then echo "$pids"; return 0; fi
     fi
 
