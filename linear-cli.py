@@ -55,16 +55,17 @@ def _find_api_key():
     key = os.environ.get("LINEAR_API_KEY", "")
     if key:
         return key
-    # Search for a phonyhuman TOML config in the current directory
-    import glob
+    # Search well-known phonyhuman config files in the current directory
     import tomllib
-    for candidate in glob.glob("*.toml"):
+    for candidate in ("symphony.toml", "phonyhuman.toml"):
         try:
             with open(candidate, "rb") as f:
                 cfg = tomllib.load(f)
             key = cfg.get("linear", {}).get("api_key", "")
             if key:
                 return key
+        except FileNotFoundError:
+            continue
         except Exception:
             continue
     return ""

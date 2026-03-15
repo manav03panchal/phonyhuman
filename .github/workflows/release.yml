@@ -186,6 +186,15 @@ jobs:
 
           echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
 
+      - name: Generate local checksum
+        run: sha256sum "$TARBALL" > "${TARBALL}.sha256"
+
+      - name: Upload checksum artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: checksum-${{ matrix.platform }}
+          path: ${{ env.TARBALL }}.sha256
+
       - name: Upload release asset
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
@@ -205,22 +214,17 @@ jobs:
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
           echo "tag=v$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Download all release tarballs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p tarballs
-          gh release download "${{ steps.version.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "*.tar.gz" \
-            --dir tarballs
+      - name: Download checksum artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: checksum-*
+          path: checksums
 
-      - name: Generate checksums
+      - name: Assemble checksums
         run: |
-          cd tarballs
-          sha256sum *.tar.gz | sort > ../checksums.txt
+          cat checksums/checksum-*/*.sha256 | sort > checksums.txt
           echo "Generated checksums:"
-          cat ../checksums.txt
+          cat checksums.txt
 
       - name: Import GPG signing key
         run: |

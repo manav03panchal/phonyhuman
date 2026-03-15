@@ -64,9 +64,9 @@ COPY --from=build /app/bin/symphony /usr/local/bin/symphony
 RUN mkdir -p /var/symphony/workspaces /var/log/symphony /etc/symphony && \
     chown -R symphony:symphony /var/symphony /var/log/symphony /etc/symphony
 
-# SSH directory for git credential mounts (owned by symphony user)
-RUN mkdir -p /home/symphony/.ssh && \
-    chown symphony:symphony /home/symphony/.ssh && \
+# SSH: known_hosts mount target + agent-forwarding socket directory
+RUN mkdir -p /home/symphony/.ssh /run/ssh-agent && \
+    chown symphony:symphony /home/symphony/.ssh /run/ssh-agent && \
     chmod 700 /home/symphony/.ssh
 
 USER symphony

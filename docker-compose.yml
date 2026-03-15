@@ -27,6 +27,7 @@ services:
       - SOURCE_REPO_URL
       - LINEAR_ASSIGNEE
       - PHI_LOG_LEVEL
+      - SSH_AUTH_SOCK=/run/ssh-agent/ssh-auth.sock
     volumes:
       # Workflow configuration (required)
       - ./WORKFLOW.md:/etc/symphony/WORKFLOW.md:ro
@@ -34,8 +35,9 @@ services:
       - symphony_workspaces:/var/symphony/workspaces
       # Logs
       - symphony_logs:/var/log/symphony
-      # Git credentials – mount host SSH keys read-only
-      - ${HOME}/.ssh:/home/symphony/.ssh:ro
+      # Git credentials – forward host SSH agent (never mount private keys)
+      - ${SSH_AUTH_SOCK:-/dev/null}:/run/ssh-agent/ssh-auth.sock:ro
+      - ${HOME}/.ssh/known_hosts:/home/symphony/.ssh/known_hosts:ro
       - ${HOME}/.gitconfig:/home/symphony/.gitconfig:ro
       # Optional: mount claude CLI binary from host
       # - /usr/local/bin/claude:/usr/local/bin/claude:ro

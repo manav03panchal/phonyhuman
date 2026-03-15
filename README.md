@@ -241,7 +241,7 @@ phonyhuman 🤪            TOML config → generates WORKFLOW.md → launches Sy
 Symphony was built to talk to OpenAI's Codex via a JSON-RPC 2.0 protocol over stdio. `claude-shim.py` is a drop-in replacement that:
 
 - Responds to `initialize`, `thread/start`, `turn/start` RPC messages
-- Spawns `claude -p <prompt> --output-format stream-json --dangerously-skip-permissions` for each turn
+- Spawns `claude -p <prompt> --output-format stream-json --dangerously-skip-permissions --allowedTools <list>` for each turn
 - Streams Claude's events back as notifications
 - Emits `turn/completed` or `turn/failed` when done
 - Handles `linear_graphql` tool calls from Symphony
@@ -274,6 +274,7 @@ phonyhuman update
 | `SOURCE_REPO_URL` | Git clone URL (overrides config) |
 | `GITHUB_TOKEN` | Auth token for private repo / self-update |
 | `PHONYHUMAN_VERSION` | Pin installer to a specific version |
+| `CLAUDE_ALLOWED_TOOLS` | Space-separated tool allowlist for agents (see [SECURITY.md](SECURITY.md)) |
 
 ## Documentation
 
@@ -285,6 +286,7 @@ phonyhuman update
 | [Developer conventions](elixir/AGENTS.md) | Code style, @spec requirements, PR conventions |
 | [Logging](elixir/docs/logging.md) | Structured logging conventions |
 | [Token accounting](elixir/docs/token_accounting.md) | Claude token usage tracking and cost attribution |
+| [Security](SECURITY.md) | Threat model, tool allowlist, production hardening |
 
 ## License
 

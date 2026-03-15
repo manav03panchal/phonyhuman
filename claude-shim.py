@@ -62,6 +62,33 @@ def send_notification(method, params=None):
 
 
 # ---------------------------------------------------------------------------
+# Linear endpoint validation
+# ---------------------------------------------------------------------------
+
+def _validate_linear_endpoint(url):
+    """Validate that a Linear endpoint URL is HTTPS on the linear.app domain.
+
+    Returns ``url`` if valid, or ``None`` if the endpoint should be rejected.
+    An error message is logged on rejection.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception:
+        log_error(f"LINEAR_ENDPOINT is not a valid URL: {url!r}")
+        return None
+    if parsed.scheme != "https":
+        log_error(f"LINEAR_ENDPOINT must use HTTPS (got {parsed.scheme!r})")
+        return None
+    host = (parsed.hostname or "").lower()
+    if host != "linear.app" and not host.endswith(".linear.app"):
+        log_error(
+            f"LINEAR_ENDPOINT must be on the linear.app domain (got {host!r})"
+        )
+        return None
+    return url
+
+
+# ---------------------------------------------------------------------------
 # Linear GraphQL tool (mirrors Symphony's DynamicTool)
 # ---------------------------------------------------------------------------
 
@@ -98,7 +125,21 @@ def execute_linear_graphql(arguments):
             })}],
         }
 
-    endpoint = os.environ.get("LINEAR_ENDPOINT", "https://api.linear.app/graphql")
+    raw_endpoint = os.environ.get("LINEAR_ENDPOINT", "https://api.linear.app/graphql")
+    endpoint = _validate_linear_endpoint(raw_endpoint)
+    if endpoint is None:
+        return {
+            "success": False,
+            "contentItems": [{"type": "inputText", "text": json.dumps({
+                "error": {
+                    "message": (
+                        "LINEAR_ENDPOINT rejected — must be HTTPS on the "
+                        "linear.app domain."
+                    )
+                }
+            })}],
+        }
+
     body = json.dumps({"query": query, "variables": variables}).encode()
     req = urllib.request.Request(
         endpoint,
@@ -282,6 +323,68 @@ def strip_otel_endpoint_vars(env):
 
 
 # ---------------------------------------------------------------------------
+# Default tool allowlist for Claude Code agents
+# ---------------------------------------------------------------------------
+
+# These tools are sufficient for typical orchestration tasks (code editing, git
+# operations, running tests/builds, reading Linear).  Bash is scoped to
+# specific command prefixes to limit the blast radius of prompt-injection
+# attacks that arrive via untrusted issue content.
+#
+# Override at runtime with the CLAUDE_ALLOWED_TOOLS environment variable
+# (space-separated list).  Set to the literal string "none" to disable the
+# allowlist entirely and fall back to --dangerously-skip-permissions with no
+# tool restrictions (NOT recommended for production).
+
+_DEFAULT_ALLOWED_TOOLS = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Agent",
+    "Bash(git:*)",
+    "Bash(gh:*)",
+    "Bash(python3:*)",
+    "Bash(make:*)",
+    "Bash(mix:*)",
+    "Bash(npm:*)",
+    "Bash(npx:*)",
+    "Bash(cargo:*)",
+    "Bash(ls:*)",
+    "Bash(cat:*)",
+    "Bash(mkdir:*)",
+    "Bash(cp:*)",
+    "Bash(mv:*)",
+    "Bash(rm:*)",
+    "Bash(head:*)",
+    "Bash(tail:*)",
+    "Bash(wc:*)",
+    "Bash(find:*)",
+    "Bash(grep:*)",
+    "Bash(sort:*)",
+    "Bash(diff:*)",
+    "Bash(echo:*)",
+    "Bash(test:*)",
+    "Bash(cd:*)",
+]
+
+
+def get_allowed_tools():
+    """Return the tool allowlist as a list of strings.
+
+    Reads CLAUDE_ALLOWED_TOOLS from the environment.  Returns an empty list
+    (meaning "do not pass --allowedTools") only when explicitly set to "none".
+    """
+    raw = os.environ.get("CLAUDE_ALLOWED_TOOLS", "").strip()
+    if not raw:
+        return list(_DEFAULT_ALLOWED_TOOLS)
+    if raw.lower() == "none":
+        return []
+    return raw.split()
+
+
+# ---------------------------------------------------------------------------
 # Claude Code runner
 # ---------------------------------------------------------------------------
 
@@ -304,6 +407,12 @@ class ClaudeRunner:
             "--dangerously-skip-permissions",
             "--verbose",
         ]
+
+        # Restrict available tools to reduce prompt-injection blast radius.
+        # See SECURITY.md for threat model details.
+        allowed = get_allowed_tools()
+        if allowed:
+            cmd.extend(["--allowedTools"] + allowed)
 
         # Build a clean environment for the Claude subprocess.
         # Remove CLAUDECODE to avoid "nested session" detection.

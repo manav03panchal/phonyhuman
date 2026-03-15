@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import os
 import sys
 import types
 import unittest
@@ -20,6 +21,82 @@ ClaudeRunner = claude_shim.ClaudeRunner
 validate_otel_port = claude_shim.validate_otel_port
 is_allowed_otel_endpoint = claude_shim.is_allowed_otel_endpoint
 strip_otel_endpoint_vars = claude_shim.strip_otel_endpoint_vars
+get_allowed_tools = claude_shim.get_allowed_tools
+_DEFAULT_ALLOWED_TOOLS = claude_shim._DEFAULT_ALLOWED_TOOLS
+_validate_linear_endpoint = claude_shim._validate_linear_endpoint
+execute_linear_graphql = claude_shim.execute_linear_graphql
+
+
+class TestValidateLinearEndpoint(unittest.TestCase):
+    def test_default_endpoint_accepted(self):
+        self.assertEqual(
+            _validate_linear_endpoint("https://api.linear.app/graphql"),
+            "https://api.linear.app/graphql",
+        )
+
+    def test_subdomain_accepted(self):
+        self.assertEqual(
+            _validate_linear_endpoint("https://staging.linear.app/graphql"),
+            "https://staging.linear.app/graphql",
+        )
+
+    def test_bare_domain_accepted(self):
+        self.assertEqual(
+            _validate_linear_endpoint("https://linear.app/graphql"),
+            "https://linear.app/graphql",
+        )
+
+    def test_http_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint("http://api.linear.app/graphql"))
+
+    def test_arbitrary_domain_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint("https://evil.com/graphql"))
+
+    def test_lookalike_domain_rejected(self):
+        self.assertIsNone(
+            _validate_linear_endpoint("https://notlinear.app/graphql")
+        )
+
+    def test_suffix_attack_rejected(self):
+        self.assertIsNone(
+            _validate_linear_endpoint("https://evil.com.linear.app.attacker.com/graphql")
+        )
+
+    def test_empty_string_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint(""))
+
+    def test_no_scheme_rejected(self):
+        self.assertIsNone(_validate_linear_endpoint("api.linear.app/graphql"))
+
+
+class TestExecuteLinearGraphqlEndpointValidation(unittest.TestCase):
+    """Ensure execute_linear_graphql rejects invalid LINEAR_ENDPOINT values."""
+
+    def test_rejects_evil_endpoint(self):
+        original = os.environ.get("LINEAR_ENDPOINT")
+        os.environ["LINEAR_ENDPOINT"] = "https://evil.com/steal"
+        try:
+            result = execute_linear_graphql({"query": "{ viewer { id } }"})
+            self.assertFalse(result["success"])
+            self.assertIn("rejected", result["contentItems"][0]["text"])
+        finally:
+            if original is None:
+                os.environ.pop("LINEAR_ENDPOINT", None)
+            else:
+                os.environ["LINEAR_ENDPOINT"] = original
+
+    def test_rejects_http_endpoint(self):
+        original = os.environ.get("LINEAR_ENDPOINT")
+        os.environ["LINEAR_ENDPOINT"] = "http://api.linear.app/graphql"
+        try:
+            result = execute_linear_graphql({"query": "{ viewer { id } }"})
+            self.assertFalse(result["success"])
+            self.assertIn("rejected", result["contentItems"][0]["text"])
+        finally:
+            if original is None:
+                os.environ.pop("LINEAR_ENDPOINT", None)
+            else:
+                os.environ["LINEAR_ENDPOINT"] = original
 
 
 class TestIsRateLimit(unittest.TestCase):
@@ -400,6 +477,60 @@ class TestStripOtelEndpointVars(unittest.TestCase):
         env = {"SOME_VAR": "value"}
         strip_otel_endpoint_vars(env)
         self.assertEqual(env, {"SOME_VAR": "value"})
+
+
+class TestGetAllowedTools(unittest.TestCase):
+    def setUp(self):
+        self._orig = os.environ.get("CLAUDE_ALLOWED_TOOLS")
+
+    def tearDown(self):
+        if self._orig is None:
+            os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        else:
+            os.environ["CLAUDE_ALLOWED_TOOLS"] = self._orig
+
+    def test_default_returns_builtin_list(self):
+        os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        result = get_allowed_tools()
+        self.assertEqual(result, list(_DEFAULT_ALLOWED_TOOLS))
+
+    def test_default_contains_scoped_bash(self):
+        os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        result = get_allowed_tools()
+        self.assertIn("Bash(git:*)", result)
+        self.assertIn("Bash(gh:*)", result)
+        self.assertIn("Read", result)
+
+    def test_default_has_no_unrestricted_bash(self):
+        os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        result = get_allowed_tools()
+        # Should not contain bare "Bash" without scope
+        self.assertNotIn("Bash", result)
+
+    def test_custom_allowlist_from_env(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "Read Write Bash(git:*)"
+        result = get_allowed_tools()
+        self.assertEqual(result, ["Read", "Write", "Bash(git:*)"])
+
+    def test_none_disables_allowlist(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "none"
+        result = get_allowed_tools()
+        self.assertEqual(result, [])
+
+    def test_none_case_insensitive(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "NONE"
+        result = get_allowed_tools()
+        self.assertEqual(result, [])
+
+    def test_empty_string_returns_default(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = ""
+        result = get_allowed_tools()
+        self.assertEqual(result, list(_DEFAULT_ALLOWED_TOOLS))
+
+    def test_whitespace_only_returns_default(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "   "
+        result = get_allowed_tools()
+        self.assertEqual(result, list(_DEFAULT_ALLOWED_TOOLS))
 
 
 if __name__ == "__main__":
