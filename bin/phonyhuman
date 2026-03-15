@@ -753,7 +753,7 @@ for asset in data.get('assets', []):
             curl -sSL -o "$tmpdir/checksums.txt" "$checksums_url" || die "Failed to download checksums"
         fi
 
-        expected_sum=$(grep "$tarball_name" "$tmpdir/checksums.txt" | awk '{print $1}')
+        expected_sum=$(grep "  ${tarball_name}$" "$tmpdir/checksums.txt" | head -1 | awk '{print $1}')
         if [[ -z "$expected_sum" ]]; then
             die "Checksum for $tarball_name not found in checksums.txt"
         fi

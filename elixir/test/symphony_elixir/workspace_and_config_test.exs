@@ -794,8 +794,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Config.agent_read_timeout_ms() == 5_000
     assert Config.agent_stall_timeout_ms() == 300_000
 
-    write_workflow_file!(Workflow.workflow_file_path(), agent_command: "codex app-server --model gpt-5.3-codex")
-    assert Config.agent_command() == "codex app-server --model gpt-5.3-codex"
+    write_workflow_file!(Workflow.workflow_file_path(), agent_command: "claude app-server --model gpt-5.3-codex")
+    assert Config.agent_command() == "claude app-server --model gpt-5.3-codex"
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_approval_policy: "on-request",
@@ -904,8 +904,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert :ok = Config.validate!()
 
-    write_workflow_file!(Workflow.workflow_file_path(), agent_command: "codex app-server")
-    assert Config.agent_command() == "codex app-server"
+    write_workflow_file!(Workflow.workflow_file_path(), agent_command: "claude app-server")
+    assert Config.agent_command() == "claude app-server"
   end
 
   test "config resolves $VAR references for env-backed secret and path values" do
@@ -1097,7 +1097,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       project_slug: "project"
     agent:
       max_concurrent_agents: 5
-      command: "codex app-server --custom"
+      command: "claude app-server --custom"
       turn_timeout_ms: 7200000
       read_timeout_ms: 10000
       stall_timeout_ms: 600000
@@ -1110,7 +1110,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     File.write!(Workflow.workflow_file_path(), workflow)
     if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
 
-    assert Config.agent_command() == "codex app-server --custom"
+    assert Config.agent_command() == "claude app-server --custom"
     assert Config.agent_turn_timeout_ms() == 7_200_000
     assert Config.agent_read_timeout_ms() == 10_000
     assert Config.agent_stall_timeout_ms() == 600_000
@@ -1127,7 +1127,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       api_key: "token"
       project_slug: "project"
     codex:
-      command: "codex app-server --legacy"
+      command: "claude app-server --legacy"
       turn_timeout_ms: 1800000
       read_timeout_ms: 2000
       stall_timeout_ms: 120000
@@ -1140,7 +1140,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     log =
       capture_log(fn ->
-        assert Config.agent_command() == "codex app-server --legacy"
+        assert Config.agent_command() == "claude app-server --legacy"
         assert Config.agent_turn_timeout_ms() == 1_800_000
         assert Config.agent_read_timeout_ms() == 2_000
         assert Config.agent_stall_timeout_ms() == 120_000
