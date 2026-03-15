@@ -32,6 +32,7 @@ defmodule SymphonyElixir.Application do
       {SymphonyElixir.RestartMonitor, watched: [SymphonyElixir.AgentSupervisor]},
       SymphonyElixir.WorkflowStore,
       SymphonyElixir.Linear.CircuitBreaker,
+      SymphonyElixirWeb.Plugs.RateLimiter.Sweeper,
       SymphonyElixir.Orchestrator,
       SymphonyElixir.TelemetryCollector,
       SymphonyElixir.HttpServer
