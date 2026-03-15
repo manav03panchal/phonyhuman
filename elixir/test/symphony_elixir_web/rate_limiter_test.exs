@@ -250,4 +250,101 @@ defmodule SymphonyElixirWeb.RateLimiterTest do
       assert body["error"]["message"] == "Too Many Requests"
     end
   end
+
+  describe "X-Forwarded-For client IP extraction" do
+    setup do
+      if :ets.whereis(:symphony_rate_limiter) != :undefined do
+        :ets.delete_all_objects(:symphony_rate_limiter)
+      end
+
+      original = System.get_env("RATE_LIMIT_RPM")
+      System.put_env("RATE_LIMIT_RPM", "3")
+
+      on_exit(fn ->
+        restore_env("RATE_LIMIT_RPM", original)
+
+        if :ets.whereis(:symphony_rate_limiter) != :undefined do
+          :ets.delete_all_objects(:symphony_rate_limiter)
+        end
+      end)
+
+      :ok
+    end
+
+    test "uses X-Forwarded-For IP for rate limiting" do
+      # Exhaust the limit for client 10.0.0.1
+      for _ <- 1..3 do
+        build_conn()
+        |> put_req_header("x-forwarded-for", "10.0.0.1")
+        |> get("/api/v1/state")
+      end
+
+      # 4th request from same forwarded IP should be rate limited
+      conn =
+        build_conn()
+        |> put_req_header("x-forwarded-for", "10.0.0.1")
+        |> get("/api/v1/state")
+
+      assert conn.status == 429
+    end
+
+    test "different X-Forwarded-For IPs get separate rate limit buckets" do
+      # Exhaust the limit for client 10.0.0.1
+      for _ <- 1..3 do
+        build_conn()
+        |> put_req_header("x-forwarded-for", "10.0.0.1")
+        |> get("/api/v1/state")
+      end
+
+      # Request from different forwarded IP should not be rate limited
+      conn =
+        build_conn()
+        |> put_req_header("x-forwarded-for", "10.0.0.2")
+        |> get("/api/v1/state")
+
+      assert conn.status in [200, 503]
+    end
+
+    test "uses leftmost IP from multi-IP X-Forwarded-For" do
+      # Exhaust with "10.0.0.1, proxy1, proxy2"
+      for _ <- 1..3 do
+        build_conn()
+        |> put_req_header("x-forwarded-for", "10.0.0.1, 192.168.1.1, 172.16.0.1")
+        |> get("/api/v1/state")
+      end
+
+      # Same leftmost IP should be rate limited
+      conn =
+        build_conn()
+        |> put_req_header("x-forwarded-for", "10.0.0.1, 192.168.1.99")
+        |> get("/api/v1/state")
+
+      assert conn.status == 429
+    end
+
+    test "falls back to remote_ip when X-Forwarded-For is absent" do
+      # Requests without X-Forwarded-For should use conn.remote_ip
+      for _ <- 1..3 do
+        build_conn() |> get("/api/v1/state")
+      end
+
+      conn = build_conn() |> get("/api/v1/state")
+      assert conn.status == 429
+    end
+
+    test "falls back to remote_ip when X-Forwarded-For is empty" do
+      for _ <- 1..3 do
+        build_conn()
+        |> put_req_header("x-forwarded-for", "")
+        |> get("/api/v1/state")
+      end
+
+      conn =
+        build_conn()
+        |> put_req_header("x-forwarded-for", "")
+        |> get("/api/v1/state")
+
+      assert conn.status == 429
+    end
+  end
 end

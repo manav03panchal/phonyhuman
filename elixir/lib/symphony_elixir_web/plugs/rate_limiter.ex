@@ -64,7 +64,20 @@ defmodule SymphonyElixirWeb.Plugs.RateLimiter do
   end
 
   defp client_ip(conn) do
-    conn.remote_ip |> :inet.ntoa() |> to_string()
+    case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
+      [forwarded | _] ->
+        forwarded
+        |> String.split(",", parts: 2)
+        |> hd()
+        |> String.trim()
+        |> case do
+          "" -> conn.remote_ip |> :inet.ntoa() |> to_string()
+          ip -> ip
+        end
+
+      [] ->
+        conn.remote_ip |> :inet.ntoa() |> to_string()
+    end
   end
 
   defp rpm_from_env do
