@@ -48,7 +48,7 @@ defmodule SymphonyElixirWeb.ContractTest do
 
       case value do
         v when is_map(v) and map_size(v) > 0 -> key_paths(v, full)
-        v when is_list(v) and length(v) > 0 -> key_paths(hd(v), "#{full}[]")
+        [head | _] -> key_paths(head, "#{full}[]")
         _ -> [full]
       end
     end)
