@@ -159,11 +159,11 @@ class TestFindApiKey(unittest.TestCase):
                     os.chdir(orig_cwd)
         self.assertEqual(result, "")
 
-    def test_toml_fallback(self):
+    def test_symphony_toml_fallback(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            toml_path = os.path.join(tmpdir, "config.toml")
+            toml_path = os.path.join(tmpdir, "symphony.toml")
             with open(toml_path, "w") as f:
-                f.write('[linear]\napi_key = "toml-key"\n')
+                f.write('[linear]\napi_key = "symphony-key"\n')
 
             orig_cwd = os.getcwd()
             try:
@@ -174,7 +174,61 @@ class TestFindApiKey(unittest.TestCase):
                     result = cli._find_api_key()
             finally:
                 os.chdir(orig_cwd)
-        self.assertEqual(result, "toml-key")
+        self.assertEqual(result, "symphony-key")
+
+    def test_phonyhuman_toml_fallback(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            toml_path = os.path.join(tmpdir, "phonyhuman.toml")
+            with open(toml_path, "w") as f:
+                f.write('[linear]\napi_key = "phonyhuman-key"\n')
+
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                env = os.environ.copy()
+                env.pop("LINEAR_API_KEY", None)
+                with mock.patch.dict(os.environ, env, clear=True):
+                    result = cli._find_api_key()
+            finally:
+                os.chdir(orig_cwd)
+        self.assertEqual(result, "phonyhuman-key")
+
+    def test_arbitrary_toml_ignored(self):
+        """Arbitrary .toml files must not be read (HUM-132)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            toml_path = os.path.join(tmpdir, "evil.toml")
+            with open(toml_path, "w") as f:
+                f.write('[linear]\napi_key = "evil-key"\n')
+
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                env = os.environ.copy()
+                env.pop("LINEAR_API_KEY", None)
+                with mock.patch.dict(os.environ, env, clear=True):
+                    result = cli._find_api_key()
+            finally:
+                os.chdir(orig_cwd)
+        self.assertEqual(result, "")
+
+    def test_symphony_toml_preferred_over_phonyhuman(self):
+        """symphony.toml is checked first."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "symphony.toml"), "w") as f:
+                f.write('[linear]\napi_key = "sym-key"\n')
+            with open(os.path.join(tmpdir, "phonyhuman.toml"), "w") as f:
+                f.write('[linear]\napi_key = "ph-key"\n')
+
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                env = os.environ.copy()
+                env.pop("LINEAR_API_KEY", None)
+                with mock.patch.dict(os.environ, env, clear=True):
+                    result = cli._find_api_key()
+            finally:
+                os.chdir(orig_cwd)
+        self.assertEqual(result, "sym-key")
 
 
 # ---------------------------------------------------------------------------
