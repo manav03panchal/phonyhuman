@@ -30,7 +30,16 @@ defmodule SymphonyElixirWeb.Router do
     plug(SymphonyElixirWeb.Plugs.BearerAuth)
   end
 
+  pipeline :static do
+    plug(:put_secure_browser_headers, %{
+      "x-content-type-options" => "nosniff",
+      "x-frame-options" => "DENY"
+    })
+  end
+
   scope "/", SymphonyElixirWeb do
+    pipe_through(:static)
+
     get("/dashboard.css", StaticAssetController, :dashboard_css)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
