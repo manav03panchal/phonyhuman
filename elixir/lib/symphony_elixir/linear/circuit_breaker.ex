@@ -117,6 +117,12 @@ defmodule SymphonyElixir.Linear.CircuitBreaker do
     {:reply, :ok, apply_outcome(outcome, state)}
   end
 
+  @impl true
+  def handle_info(msg, state) do
+    Logger.warning("CircuitBreaker received unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
   # Private helpers
 
   defp maybe_allow_probe(%State{opened_at: opened_at} = state) do
