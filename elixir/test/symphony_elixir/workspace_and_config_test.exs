@@ -37,6 +37,26 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
+  test "workspace safe_identifier truncates identifiers longer than 200 characters" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-truncate-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+      long_id = String.duplicate("a", 300)
+      assert {:ok, workspace} = Workspace.create_for_issue(long_id)
+      basename = Path.basename(workspace)
+      assert String.length(basename) == 200
+      assert basename == String.duplicate("a", 200)
+    after
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "workspace path is deterministic per issue identifier" do
     workspace_root =
       Path.join(
