@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -25,6 +26,11 @@ const (
 	// sseIdleTimeout is the maximum duration without receiving any data before
 	// the SSE connection is considered dead and a reconnect is triggered.
 	sseIdleTimeout = 45 * time.Second
+	// sseConnectTimeout is the maximum duration for establishing a TCP+TLS
+	// connection before the dial is aborted. This prevents httpClient.Do from
+	// hanging indefinitely when the server accepts the TCP handshake but
+	// never sends an HTTP response.
+	sseConnectTimeout = 10 * time.Second
 )
 
 // SSEEvent represents a parsed Server-Sent Event.
@@ -35,12 +41,13 @@ type SSEEvent struct {
 
 // SSESubscription manages an SSE connection with auto-reconnect.
 type SSESubscription struct {
-	url         string
-	httpClient  *http.Client
-	events      chan SSEEvent
-	ctx         context.Context
-	cancel      context.CancelFunc
-	idleTimeout time.Duration
+	url            string
+	httpClient     *http.Client
+	events         chan SSEEvent
+	ctx            context.Context
+	cancel         context.CancelFunc
+	idleTimeout    time.Duration
+	connectTimeout time.Duration
 }
 
 // SubscribeSSE connects to the SSE endpoint and returns a subscription.
@@ -51,12 +58,20 @@ type SSESubscription struct {
 func (c *Client) SubscribeSSE(ctx context.Context) *SSESubscription {
 	ctx, cancel := context.WithCancel(ctx)
 	sub := &SSESubscription{
-		url:         c.baseURL + eventsPath,
-		httpClient:  &http.Client{},
-		events:      make(chan SSEEvent, 16),
-		ctx:         ctx,
-		cancel:      cancel,
-		idleTimeout: sseIdleTimeout,
+		url: c.baseURL + eventsPath,
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout: sseConnectTimeout,
+				}).DialContext,
+				ResponseHeaderTimeout: sseConnectTimeout,
+			},
+		},
+		events:         make(chan SSEEvent, 16),
+		ctx:            ctx,
+		cancel:         cancel,
+		idleTimeout:    sseIdleTimeout,
+		connectTimeout: sseConnectTimeout,
 	}
 	go sub.loop()
 	return sub
