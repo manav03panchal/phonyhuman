@@ -120,8 +120,8 @@ defmodule SymphonyElixirWeb.ContractTest do
       },
       rate_limits: %{
         "limit_id" => "rl-001",
-        "primary_bucket" => %{"capacity" => 1000, "remaining" => 750},
-        "secondary_bucket" => %{"capacity" => 5000, "remaining" => 4200},
+        "primary" => %{"capacity" => 1000, "remaining" => 750},
+        "secondary" => %{"capacity" => 5000, "remaining" => 4200},
         "credits" => 100.0
       },
       fleet_status: "running",
@@ -267,10 +267,10 @@ defmodule SymphonyElixirWeb.ContractTest do
       rl = presenter_json["rate_limits"]
 
       assert rl["limit_id"] == "rl-001"
-      assert rl["primary_bucket"]["capacity"] == 1000
-      assert rl["primary_bucket"]["remaining"] == 750
-      assert rl["secondary_bucket"]["capacity"] == 5000
-      assert rl["secondary_bucket"]["remaining"] == 4200
+      assert rl["primary"]["capacity"] == 1000
+      assert rl["primary"]["remaining"] == 750
+      assert rl["secondary"]["capacity"] == 5000
+      assert rl["secondary"]["remaining"] == 4200
       assert rl["credits"] == 100.0
     end
   end

@@ -62,11 +62,11 @@
   },
   "rate_limits": {
     "limit_id": "rl-001",
-    "primary_bucket": {
+    "primary": {
       "capacity": 1000,
       "remaining": 750
     },
-    "secondary_bucket": {
+    "secondary": {
       "capacity": 5000,
       "remaining": 4200
     },

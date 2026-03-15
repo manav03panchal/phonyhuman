@@ -99,8 +99,8 @@ type AgentTotals struct {
 // RateLimits holds rate limit bucket information from the orchestrator.
 type RateLimits struct {
 	LimitID         string  `json:"limit_id"`
-	PrimaryBucket   *Bucket `json:"primary_bucket"`
-	SecondaryBucket *Bucket `json:"secondary_bucket"`
+	PrimaryBucket   *Bucket `json:"primary"`
+	SecondaryBucket *Bucket `json:"secondary"`
 	Credits         float64 `json:"credits"`
 }
 
