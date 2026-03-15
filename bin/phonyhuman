@@ -608,10 +608,10 @@ cmd_update() {
     platform="${os_name}-${arch_name}"
 
     local tarball_url
-    tarball_url=$(echo "$release_json" | python3 -c "
+    tarball_url=$(echo "$release_json" | python3 - "$platform" <<'PYEOF'
 import sys, json
 data = json.load(sys.stdin)
-platform = '${platform}'
+platform = sys.argv[1]
 fallback = None
 for asset in data.get('assets', []):
     name = asset['name']
@@ -622,7 +622,8 @@ for asset in data.get('assets', []):
         fallback = asset['browser_download_url']
 if fallback:
     print(fallback)
-" 2>/dev/null)
+PYEOF
+)
 
     if [[ -z "$tarball_url" ]]; then
         die "No tarball found in latest release"
@@ -1079,16 +1080,17 @@ except: sys.exit(1)
 
     # ── Read display values ───────────────────────────────────────────
     local display_vals
-    display_vals=$(python3 -c "
-import tomllib, os
-with open('$config_file', 'rb') as f: c = tomllib.load(f)
+    display_vals=$(python3 - "$config_file" <<'PYEOF'
+import tomllib, os, sys
+with open(sys.argv[1], 'rb') as f: c = tomllib.load(f)
 print(c.get('linear',{}).get('project_slug',''))
 print(c.get('repo',{}).get('url','') or os.environ.get('SOURCE_REPO_URL',''))
 print(c.get('agent',{}).get('max_concurrent',5))
 print(c.get('agent',{}).get('max_turns',20))
 print(c.get('agent',{}).get('poll_interval_ms',10000))
 print(c.get('workspace',{}).get('root','~/symphony-workspaces'))
-")
+PYEOF
+)
     local slug repo agents turns poll wsroot
     IFS=$'\n' read -rd '' slug repo agents turns poll wsroot <<< "$display_vals" || true
 
