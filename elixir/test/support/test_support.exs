@@ -37,6 +37,7 @@ defmodule SymphonyElixir.TestSupport do
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
         if Process.whereis(WorkflowStore), do: WorkflowStore.force_reload()
+        Config.clear_validated_opts_cache()
         if Process.whereis(CircuitBreaker), do: CircuitBreaker.reset()
         stop_default_http_server()
 

@@ -9,6 +9,7 @@ defmodule SymphonyElixir.WorkflowStore do
   alias SymphonyElixir.Workflow
 
   @poll_interval_ms 1_000
+  @ets_table :symphony_workflow_cache
 
   defmodule State do
     @moduledoc false
@@ -32,6 +33,23 @@ defmodule SymphonyElixir.WorkflowStore do
     end
   end
 
+  @doc """
+  Reads the cached workflow directly from ETS without going through the GenServer.
+  Returns `{:ok, workflow}` on hit, or `:miss` when the ETS table does not exist
+  or has no entry yet.
+  """
+  @spec current_cached() :: {:ok, Workflow.loaded_workflow()} | :miss
+  def current_cached do
+    if :ets.whereis(@ets_table) != :undefined do
+      case :ets.lookup(@ets_table, :workflow) do
+        [{:workflow, workflow}] -> {:ok, workflow}
+        [] -> :miss
+      end
+    else
+      :miss
+    end
+  end
+
   @spec force_reload() :: :ok | {:error, term()}
   def force_reload do
     case Process.whereis(__MODULE__) do
@@ -48,8 +66,11 @@ defmodule SymphonyElixir.WorkflowStore do
 
   @impl true
   def init(_opts) do
+    init_ets()
+
     case load_state(Workflow.workflow_file_path()) do
       {:ok, state} ->
+        cache_workflow(state.workflow)
         schedule_poll()
         {:ok, state}
 
@@ -62,9 +83,11 @@ defmodule SymphonyElixir.WorkflowStore do
   def handle_call(:current, _from, %State{} = state) do
     case reload_state(state) do
       {:ok, new_state} ->
+        cache_workflow(new_state.workflow)
         {:reply, {:ok, new_state.workflow}, new_state}
 
       {:error, _reason, new_state} ->
+        cache_workflow(new_state.workflow)
         {:reply, {:ok, new_state.workflow}, new_state}
     end
   end
@@ -72,9 +95,11 @@ defmodule SymphonyElixir.WorkflowStore do
   def handle_call(:force_reload, _from, %State{} = state) do
     case reload_state(state) do
       {:ok, new_state} ->
+        cache_workflow(new_state.workflow)
         {:reply, :ok, new_state}
 
       {:error, reason, new_state} ->
+        cache_workflow(new_state.workflow)
         {:reply, {:error, reason}, new_state}
     end
   end
@@ -84,8 +109,12 @@ defmodule SymphonyElixir.WorkflowStore do
     schedule_poll()
 
     case reload_state(state) do
-      {:ok, new_state} -> {:noreply, new_state}
-      {:error, _reason, new_state} -> {:noreply, new_state}
+      {:ok, new_state} ->
+        cache_workflow(new_state.workflow)
+        {:noreply, new_state}
+
+      {:error, _reason, new_state} ->
+        {:noreply, new_state}
     end
   end
 
@@ -149,5 +178,19 @@ defmodule SymphonyElixir.WorkflowStore do
 
   defp log_reload_error(path, reason) do
     Logger.error("Failed to reload workflow path=#{path} reason=#{inspect(reason)}; keeping last known good configuration")
+  end
+
+  defp init_ets do
+    if :ets.whereis(@ets_table) == :undefined do
+      :ets.new(@ets_table, [:set, :public, :named_table, read_concurrency: true])
+    end
+  end
+
+  defp cache_workflow(workflow) do
+    if :ets.whereis(@ets_table) != :undefined do
+      :ets.insert(@ets_table, {:workflow, workflow})
+    end
+
+    :ok
   end
 end

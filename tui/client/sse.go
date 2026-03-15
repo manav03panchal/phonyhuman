@@ -41,13 +41,14 @@ type SSEEvent struct {
 
 // SSESubscription manages an SSE connection with auto-reconnect.
 type SSESubscription struct {
-	url            string
-	httpClient     *http.Client
-	events         chan SSEEvent
-	ctx            context.Context
-	cancel         context.CancelFunc
-	idleTimeout    time.Duration
-	connectTimeout time.Duration
+	url               string
+	httpClient        *http.Client
+	events            chan SSEEvent
+	ctx               context.Context
+	cancel            context.CancelFunc
+	idleTimeout       time.Duration
+	connectTimeout    time.Duration
+	backoffResetAfter time.Duration
 }
 
 // SubscribeSSE connects to the SSE endpoint and returns a subscription.
@@ -67,11 +68,12 @@ func (c *Client) SubscribeSSE(ctx context.Context) *SSESubscription {
 				ResponseHeaderTimeout: sseConnectTimeout,
 			},
 		},
-		events:         make(chan SSEEvent, 16),
-		ctx:            ctx,
-		cancel:         cancel,
-		idleTimeout:    sseIdleTimeout,
-		connectTimeout: sseConnectTimeout,
+		events:            make(chan SSEEvent, 16),
+		ctx:               ctx,
+		cancel:            cancel,
+		idleTimeout:       sseIdleTimeout,
+		connectTimeout:    sseConnectTimeout,
+		backoffResetAfter: maxBackoff,
 	}
 	go sub.loop()
 	return sub
@@ -100,12 +102,20 @@ func (s *SSESubscription) loop() {
 			return
 		}
 
+		connStart := time.Now()
 		err := s.connect()
 		if err == errEndpointNotFound {
 			return
 		}
 		if err != nil && s.ctx.Err() != nil {
 			return
+		}
+
+		// Reset backoff after a healthy connection that lasted longer than
+		// the reset threshold, so transient earlier failures don't permanently
+		// slow reconnects.
+		if time.Since(connStart) >= s.backoffResetAfter {
+			backoff = initialBackoff
 		}
 
 		select {
