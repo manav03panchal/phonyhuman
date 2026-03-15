@@ -192,7 +192,7 @@ find_pid_on_port() {
     # 3. ss — modern Linux (iproute2)
     if command -v ss &>/dev/null; then
         pids=$(ss -tlnp "sport = :$port" 2>/dev/null \
-            | grep -oP 'pid=\K[0-9]+' || true)
+            | grep -o 'pid=[0-9]*' | cut -d= -f2 || true)
         if [[ -n "$pids" ]]; then echo "$pids"; return 0; fi
     fi
 
@@ -770,8 +770,29 @@ for asset in data.get('assets', []):
         yellow "  Warning: No GPG signature found in release, skipping signature verification"; echo ""
     fi
 
-    # Extract over existing install
-    tar xzf "$tmpdir/phonyhuman.tar.gz" -C "$PHONYHUMAN_HOME" --strip-components=0
+    # Extract to staging directory first, then validate paths before installing.
+    # Prevents path-traversal attacks via crafted tarballs with ../../ entries.
+    local staging_dir="$tmpdir/staging"
+    mkdir -p "$staging_dir"
+    tar xzf "$tmpdir/phonyhuman.tar.gz" -C "$staging_dir" --strip-components=0
+
+    # Reject tarball if any extracted path escapes the staging directory
+    local real_staging
+    real_staging=$(cd "$staging_dir" && pwd -P)
+    while IFS= read -r -d '' entry; do
+        local real_entry
+        real_entry=$(cd "$(dirname "$entry")" && pwd -P)/$(basename "$entry")
+        case "$real_entry" in
+            "$real_staging"/*)
+                ;; # safe — inside staging
+            *)
+                die "Path traversal detected in tarball: $(basename "$entry") resolves outside staging directory. Aborting update."
+                ;;
+        esac
+    done < <(find "$staging_dir" -mindepth 1 -print0)
+
+    # Safe: copy validated contents to install directory
+    cp -a "$staging_dir"/. "$PHONYHUMAN_HOME/"
 
     # Ensure executables
     chmod +x "$PHONYHUMAN_HOME/bin/phonyhuman"

@@ -18,6 +18,9 @@ defmodule SymphonyElixir.Orchestrator do
   # 24 hours — entries older than this are pruned from completed/claimed maps.
   @completed_ttl_ms 24 * 60 * 60 * 1_000
   @claimed_ttl_ms 24 * 60 * 60 * 1_000
+  # Extra time beyond shutdown_timeout_ms to allow force-kill and cleanup
+  # before the supervisor gives up and brutally kills the process.
+  @shutdown_safety_margin_ms 5_000
   # Slightly above the dashboard render interval so "checking now…" can render.
   @poll_transition_render_delay_ms 20
   @empty_agent_totals %{
@@ -69,7 +72,7 @@ defmodule SymphonyElixir.Orchestrator do
     %{
       id: __MODULE__,
       start: {__MODULE__, :start_link, [opts]},
-      shutdown: :infinity
+      shutdown: Config.shutdown_timeout_ms() + @shutdown_safety_margin_ms
     }
   end
 

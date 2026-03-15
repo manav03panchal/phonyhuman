@@ -1,6 +1,7 @@
 defmodule SymphonyElixir.OrchestratorShutdownTest do
   use SymphonyElixir.TestSupport
 
+  alias SymphonyElixir.{Config, Orchestrator}
   alias SymphonyElixir.Orchestrator.State
 
   defp base_state(overrides \\ %{}) do
@@ -308,6 +309,30 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
 
       refute Process.alive?(pid)
       assert log =~ "Shutdown: no active agents to drain"
+    end
+  end
+
+  describe "child_spec/1 shutdown timeout" do
+    test "uses finite shutdown based on shutdown_timeout_ms plus safety margin" do
+      spec = Orchestrator.child_spec([])
+
+      expected = Config.shutdown_timeout_ms() + 5_000
+      assert spec.shutdown == expected
+    end
+
+    test "shutdown value changes with SHUTDOWN_TIMEOUT_MS env var" do
+      old_val = System.get_env("SHUTDOWN_TIMEOUT_MS")
+      System.put_env("SHUTDOWN_TIMEOUT_MS", "30000")
+
+      on_exit(fn ->
+        if old_val,
+          do: System.put_env("SHUTDOWN_TIMEOUT_MS", old_val),
+          else: System.delete_env("SHUTDOWN_TIMEOUT_MS")
+      end)
+
+      spec = Orchestrator.child_spec([])
+
+      assert spec.shutdown == 35_000
     end
   end
 

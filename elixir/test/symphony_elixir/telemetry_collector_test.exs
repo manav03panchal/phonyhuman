@@ -198,6 +198,85 @@ defmodule SymphonyElixir.TelemetryCollectorTest do
       assert result["sess-g"]["claude_code.active_time.total"] == [%{value: 42, attributes: %{}}]
     end
 
+    test "handles non-numeric string in asInt without crashing" do
+      payload = %{
+        "resourceMetrics" => [
+          %{
+            "resource" => %{
+              "attributes" => [
+                %{"key" => "session.id", "value" => %{"stringValue" => "sess-bad"}}
+              ]
+            },
+            "scopeMetrics" => [
+              %{
+                "metrics" => [
+                  %{
+                    "name" => "claude_code.token.usage",
+                    "sum" => %{
+                      "dataPoints" => [
+                        %{"asInt" => "not_a_number", "attributes" => []},
+                        %{"asInt" => "456", "attributes" => []},
+                        %{"asInt" => "12abc", "attributes" => []}
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      result = TelemetryCollector.parse_resource_metrics(payload)
+      points = result["sess-bad"]["claude_code.token.usage"]
+      assert length(points) == 3
+      # Non-numeric string falls back to 0
+      assert Enum.at(points, 0).value == 0
+      # Valid numeric string is parsed
+      assert Enum.at(points, 1).value == 456
+      # Trailing garbage falls back to 0
+      assert Enum.at(points, 2).value == 0
+    end
+
+    test "handles non-numeric string in intValue attribute without crashing" do
+      payload = %{
+        "resourceMetrics" => [
+          %{
+            "resource" => %{
+              "attributes" => [
+                %{"key" => "session.id", "value" => %{"stringValue" => "sess-attr"}}
+              ]
+            },
+            "scopeMetrics" => [
+              %{
+                "metrics" => [
+                  %{
+                    "name" => "claude_code.test.metric",
+                    "sum" => %{
+                      "dataPoints" => [
+                        %{
+                          "asInt" => "100",
+                          "attributes" => [
+                            %{"key" => "bad_int", "value" => %{"intValue" => "xyz"}},
+                            %{"key" => "good_int", "value" => %{"intValue" => "42"}}
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      result = TelemetryCollector.parse_resource_metrics(payload)
+      point = hd(result["sess-attr"]["claude_code.test.metric"])
+      assert point.attributes["bad_int"] == 0
+      assert point.attributes["good_int"] == 42
+    end
+
     test "returns empty map for invalid payload" do
       assert TelemetryCollector.parse_resource_metrics(%{}) == %{}
       assert TelemetryCollector.parse_resource_metrics(nil) == %{}
@@ -610,6 +689,97 @@ defmodule SymphonyElixir.TelemetryCollectorTest do
 
       {:ok, resp} = Req.get("http://127.0.0.1:#{port}/unknown")
       assert resp.status == 404
+    end
+  end
+
+  describe "listener lifecycle (HUM-120)" do
+    test "listener is linked to collector — dies when collector exits" do
+      collector_name = :"link_collector_#{System.unique_integer([:positive])}"
+
+      # Trap exits so the test process survives the collector being killed
+      Process.flag(:trap_exit, true)
+
+      {:ok, collector} =
+        TelemetryCollector.start_link(
+          name: collector_name,
+          port: 0,
+          orchestrator: self()
+        )
+
+      # Grab the listener pid from GenServer state
+      %{listener_ref: listener_pid} = :sys.get_state(collector)
+      assert is_pid(listener_pid)
+      assert Process.alive?(listener_pid)
+
+      # Monitor the listener to detect when it exits
+      listener_mon = Process.monitor(listener_pid)
+
+      # Kill the collector abruptly (simulates a crash)
+      Process.exit(collector, :kill)
+
+      # Listener must die because it's linked to the collector
+      assert_receive {:DOWN, ^listener_mon, :process, ^listener_pid, _reason}, 2_000
+      refute Process.alive?(listener_pid)
+    after
+      Process.flag(:trap_exit, false)
+    end
+
+    test "collector state does not contain listener_monitor key" do
+      collector_name = :"no_mon_#{System.unique_integer([:positive])}"
+
+      {:ok, collector} =
+        TelemetryCollector.start_link(
+          name: collector_name,
+          port: 0,
+          orchestrator: self()
+        )
+
+      state = :sys.get_state(collector)
+      refute Map.has_key?(state, :listener_monitor)
+
+      GenServer.stop(collector)
+    end
+
+    test "supervised collector restarts cleanly on same port after crash" do
+      # Start a minimal supervisor wrapping the collector
+      port = 0
+      collector_name = :"sup_collector_#{System.unique_integer([:positive])}"
+
+      children = [
+        %{
+          id: :test_collector,
+          start: {TelemetryCollector, :start_link, [[name: collector_name, port: port, orchestrator: self()]]}
+        }
+      ]
+
+      {:ok, sup} = Supervisor.start_link(children, strategy: :one_for_one)
+
+      # Verify it started
+      collector = Process.whereis(collector_name)
+      assert collector != nil
+      assert Process.alive?(collector)
+      %{listener_ref: listener1} = :sys.get_state(collector)
+      assert is_pid(listener1)
+
+      # Kill the collector to trigger supervisor restart
+      Process.exit(collector, :kill)
+      :timer.sleep(200)
+
+      # Supervisor should have restarted it
+      new_collector = Process.whereis(collector_name)
+      assert new_collector != nil
+      assert new_collector != collector
+      assert Process.alive?(new_collector)
+
+      # New listener should be running (no eaddrinuse)
+      %{listener_ref: listener2} = :sys.get_state(new_collector)
+      assert is_pid(listener2)
+      assert Process.alive?(listener2)
+
+      # Old listener should be dead
+      refute Process.alive?(listener1)
+
+      Supervisor.stop(sup)
     end
   end
 end

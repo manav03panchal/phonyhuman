@@ -128,15 +128,15 @@ if [ -z "$TARBALL_URL" ]; then
 fi
 
 # ── Download and extract ─────────────────────────────────────────────
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+INSTALL_TMPDIR=$(mktemp -d)
+trap 'rm -rf "$INSTALL_TMPDIR"' EXIT
 
 echo "  Downloading..."
 
 if [ -n "$AUTH_HEADER" ]; then
-    curl -sSL -H "$AUTH_HEADER" -H "Accept: application/octet-stream" -o "$TMPDIR/phonyhuman.tar.gz" "$TARBALL_URL" || die "Download failed"
+    curl -sSL -H "$AUTH_HEADER" -H "Accept: application/octet-stream" -o "$INSTALL_TMPDIR/phonyhuman.tar.gz" "$TARBALL_URL" || die "Download failed"
 else
-    curl -sSL -o "$TMPDIR/phonyhuman.tar.gz" "$TARBALL_URL" || die "Download failed"
+    curl -sSL -o "$INSTALL_TMPDIR/phonyhuman.tar.gz" "$TARBALL_URL" || die "Download failed"
 fi
 
 # ── Verify checksum ─────────────────────────────────────────────────
@@ -153,20 +153,20 @@ for asset in data.get('assets', []):
 if [ -n "$CHECKSUMS_URL" ]; then
     echo "  Verifying checksum..."
     if [ -n "$AUTH_HEADER" ]; then
-        curl -sSL -H "$AUTH_HEADER" -o "$TMPDIR/checksums.txt" "$CHECKSUMS_URL" || die "Failed to download checksums"
+        curl -sSL -H "$AUTH_HEADER" -o "$INSTALL_TMPDIR/checksums.txt" "$CHECKSUMS_URL" || die "Failed to download checksums"
     else
-        curl -sSL -o "$TMPDIR/checksums.txt" "$CHECKSUMS_URL" || die "Failed to download checksums"
+        curl -sSL -o "$INSTALL_TMPDIR/checksums.txt" "$CHECKSUMS_URL" || die "Failed to download checksums"
     fi
 
-    EXPECTED_SUM=$(grep "$TARBALL_NAME" "$TMPDIR/checksums.txt" | awk '{print $1}')
+    EXPECTED_SUM=$(grep "$TARBALL_NAME" "$INSTALL_TMPDIR/checksums.txt" | awk '{print $1}')
     if [ -z "$EXPECTED_SUM" ]; then
         die "Checksum for $TARBALL_NAME not found in checksums.txt"
     fi
 
     if command -v sha256sum >/dev/null 2>&1; then
-        ACTUAL_SUM=$(sha256sum "$TMPDIR/phonyhuman.tar.gz" | awk '{print $1}')
+        ACTUAL_SUM=$(sha256sum "$INSTALL_TMPDIR/phonyhuman.tar.gz" | awk '{print $1}')
     elif command -v shasum >/dev/null 2>&1; then
-        ACTUAL_SUM=$(shasum -a 256 "$TMPDIR/phonyhuman.tar.gz" | awk '{print $1}')
+        ACTUAL_SUM=$(shasum -a 256 "$INSTALL_TMPDIR/phonyhuman.tar.gz" | awk '{print $1}')
     else
         die "Neither sha256sum nor shasum found — cannot verify checksum"
     fi
@@ -197,25 +197,25 @@ if [ -n "$SIG_URL" ]; then
         echo "  Verifying GPG signature..."
 
         if [ -n "$AUTH_HEADER" ]; then
-            curl -sSL -H "$AUTH_HEADER" -o "$TMPDIR/checksums.txt.asc" "$SIG_URL" || die "Failed to download GPG signature"
+            curl -sSL -H "$AUTH_HEADER" -o "$INSTALL_TMPDIR/checksums.txt.asc" "$SIG_URL" || die "Failed to download GPG signature"
         else
-            curl -sSL -o "$TMPDIR/checksums.txt.asc" "$SIG_URL" || die "Failed to download GPG signature"
+            curl -sSL -o "$INSTALL_TMPDIR/checksums.txt.asc" "$SIG_URL" || die "Failed to download GPG signature"
         fi
 
         KEY_URL="https://raw.githubusercontent.com/$GITHUB_REPO/main/release-signing-key.asc"
         if [ -n "$AUTH_HEADER" ]; then
-            curl -sSL -H "$AUTH_HEADER" -o "$TMPDIR/release-key.asc" "$KEY_URL" || die "Failed to download signing key"
+            curl -sSL -H "$AUTH_HEADER" -o "$INSTALL_TMPDIR/release-key.asc" "$KEY_URL" || die "Failed to download signing key"
         else
-            curl -sSL -o "$TMPDIR/release-key.asc" "$KEY_URL" || die "Failed to download signing key"
+            curl -sSL -o "$INSTALL_TMPDIR/release-key.asc" "$KEY_URL" || die "Failed to download signing key"
         fi
 
-        export GNUPGHOME="$TMPDIR/gnupg"
+        export GNUPGHOME="$INSTALL_TMPDIR/gnupg"
         mkdir -p "$GNUPGHOME"
         chmod 700 "$GNUPGHOME"
 
-        gpg --batch --quiet --import "$TMPDIR/release-key.asc" 2>/dev/null
+        gpg --batch --quiet --import "$INSTALL_TMPDIR/release-key.asc" 2>/dev/null
 
-        if gpg --batch --verify "$TMPDIR/checksums.txt.asc" "$TMPDIR/checksums.txt" 2>/dev/null; then
+        if gpg --batch --verify "$INSTALL_TMPDIR/checksums.txt.asc" "$INSTALL_TMPDIR/checksums.txt" 2>/dev/null; then
             green "  GPG signature verified"; echo ""
         else
             die "GPG signature verification failed! The release may have been tampered with."
@@ -235,7 +235,7 @@ mkdir -p "$INSTALL_DIR"
 echo "  Installing to $(cyan "$INSTALL_DIR")..."
 
 # Extract tarball
-tar xzf "$TMPDIR/phonyhuman.tar.gz" -C "$INSTALL_DIR"
+tar xzf "$INSTALL_TMPDIR/phonyhuman.tar.gz" -C "$INSTALL_DIR"
 
 # Ensure executables
 chmod +x "$INSTALL_DIR/bin/phonyhuman"
@@ -312,6 +312,7 @@ if [ "$ALREADY_IN_PATH" = false ]; then
         local rc="$1"
         if [ -f "$rc" ]; then
             if ! grep -qF "$BIN_DIR" "$rc" 2>/dev/null; then
+                cp "$rc" "$rc.bak.phonyhuman"
                 echo "" >> "$rc"
                 echo "# phonyhuman" >> "$rc"
                 echo "$PATH_LINE" >> "$rc"
@@ -338,6 +339,7 @@ if [ "$ALREADY_IN_PATH" = false ]; then
             FISH_CONFIG="$HOME/.config/fish/config.fish"
             if [ -f "$FISH_CONFIG" ]; then
                 if ! grep -qF "$BIN_DIR" "$FISH_CONFIG" 2>/dev/null; then
+                    cp "$FISH_CONFIG" "$FISH_CONFIG.bak.phonyhuman"
                     echo "" >> "$FISH_CONFIG"
                     echo "# phonyhuman" >> "$FISH_CONFIG"
                     echo "set -gx PATH $BIN_DIR \$PATH" >> "$FISH_CONFIG"
@@ -370,6 +372,7 @@ case "$SHELL_NAME" in
         # Ensure completion dir is in fpath
         if [ -f "$HOME/.zshrc" ]; then
             if ! grep -qF "$COMP_DIR" "$HOME/.zshrc" 2>/dev/null; then
+                cp "$HOME/.zshrc" "$HOME/.zshrc.bak.phonyhuman"
                 echo "" >> "$HOME/.zshrc"
                 echo "# phonyhuman completions" >> "$HOME/.zshrc"
                 echo "fpath=($COMP_DIR \$fpath)" >> "$HOME/.zshrc"
