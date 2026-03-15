@@ -1,9 +1,11 @@
 """Tests for rate limit / usage cap detection in claude-shim."""
 
 import importlib
+import io
 import json
 import os
 import sys
+import threading
 import types
 import unittest
 
@@ -531,6 +533,52 @@ class TestGetAllowedTools(unittest.TestCase):
         os.environ["CLAUDE_ALLOWED_TOOLS"] = "   "
         result = get_allowed_tools()
         self.assertEqual(result, list(_DEFAULT_ALLOWED_TOOLS))
+
+
+class TestSendThreadSafety(unittest.TestCase):
+    """Verify that concurrent send() calls do not interleave output."""
+
+    def test_concurrent_sends_produce_complete_lines(self):
+        """Spawn threads that call send() concurrently, then verify each
+        line in the captured output is a complete, valid JSON object."""
+        send = claude_shim.send
+        original_stdout = sys.stdout
+        buf = io.StringIO()
+        sys.stdout = buf
+
+        num_threads = 10
+        calls_per_thread = 50
+        barrier = threading.Barrier(num_threads)
+
+        def writer(thread_idx):
+            barrier.wait()
+            for i in range(calls_per_thread):
+                send({"thread": thread_idx, "seq": i})
+
+        threads = [
+            threading.Thread(target=writer, args=(t,))
+            for t in range(num_threads)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        sys.stdout = original_stdout
+        output = buf.getvalue()
+        lines = [l for l in output.split("\n") if l.strip()]
+
+        self.assertEqual(len(lines), num_threads * calls_per_thread)
+
+        for line_no, line in enumerate(lines, 1):
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                self.fail(
+                    f"Line {line_no} is not valid JSON (interleaved?): {line!r}"
+                )
+            self.assertIn("thread", obj)
+            self.assertIn("seq", obj)
 
 
 if __name__ == "__main__":
