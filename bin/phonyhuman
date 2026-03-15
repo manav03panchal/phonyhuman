@@ -192,7 +192,50 @@ find_pid_on_port() {
     return 1
 }
 
+# Expected process names for the Symphony orchestrator (BEAM VM / escript).
+SYMPHONY_PROC_NAMES="beam.smp beam escript erl"
+
+# Check whether a PID belongs to a Symphony-related process.
+# Usage: is_symphony_process PID
+# Returns 0 if the process name matches an expected Symphony process, 1 otherwise.
+is_symphony_process() {
+    local pid="$1"
+    local comm=""
+
+    # Prefer /proc on Linux (no fork)
+    if [[ -r "/proc/$pid/comm" ]]; then
+        comm=$(cat "/proc/$pid/comm" 2>/dev/null) || return 1
+    else
+        # macOS / other: fall back to ps
+        comm=$(ps -p "$pid" -o comm= 2>/dev/null) || return 1
+        comm=$(basename "$comm")
+    fi
+
+    local name
+    for name in $SYMPHONY_PROC_NAMES; do
+        if [[ "$comm" == "$name" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Filter a list of PIDs to only those belonging to Symphony processes.
+# Usage: echo "$pids" | filter_symphony_pids
+# Prints matching PIDs to stdout, one per line.
+filter_symphony_pids() {
+    local pid
+    while read -r pid; do
+        [[ -z "$pid" ]] && continue
+        if is_symphony_process "$pid"; then
+            echo "$pid"
+        fi
+    done
+}
+
 # Kill process(es) on a port and verify the port is freed.
+# Only kills processes whose name matches a known Symphony process (beam.smp,
+# escript, erl) to avoid killing unrelated services that happen to share the port.
 # Usage: kill_and_verify_port_free PORT
 # Returns 0 if port is free after kill, 1 if port remains occupied.
 kill_and_verify_port_free() {
@@ -200,15 +243,25 @@ kill_and_verify_port_free() {
     local max_retries=5
     local attempt=0
 
+    local all_pids
+    all_pids=$(find_pid_on_port "$port" 2>/dev/null) || return 0  # nothing listening
+
+    # Filter to only symphony-related processes
     local pids
-    pids=$(find_pid_on_port "$port" 2>/dev/null) || return 0  # nothing listening
+    pids=$(echo "$all_pids" | filter_symphony_pids)
+    if [[ -z "$pids" ]]; then
+        yellow "  Port ${port} is in use by a non-symphony process — refusing to kill."; echo ""
+        return 1
+    fi
 
-    dim "  Stopping existing process on port ${port}..."; echo ""
+    dim "  Stopping existing symphony process on port ${port}..."; echo ""
 
-    # Send SIGTERM to all PIDs on the port
+    # Send SIGTERM only to verified symphony PIDs
     local pid
     for pid in $pids; do
-        kill "$pid" 2>/dev/null || true
+        if is_symphony_process "$pid"; then
+            kill "$pid" 2>/dev/null || true
+        fi
     done
 
     # Verify port is freed, retrying up to max_retries times
@@ -219,10 +272,17 @@ kill_and_verify_port_free() {
         fi
         attempt=$((attempt + 1))
         if (( attempt == 2 )); then
-            # Escalate to SIGKILL after 2 failed SIGTERM waits
-            pids=$(find_pid_on_port "$port" 2>/dev/null) || return 0
-            for pid in $pids; do
-                kill -9 "$pid" 2>/dev/null || true
+            # Escalate to SIGKILL after 2 failed SIGTERM waits — re-verify identity
+            local remaining
+            remaining=$(find_pid_on_port "$port" 2>/dev/null | filter_symphony_pids) || return 0
+            if [[ -z "$remaining" ]]; then
+                yellow "  Port ${port} now held by a non-symphony process — aborting."; echo ""
+                return 1
+            fi
+            for pid in $remaining; do
+                if is_symphony_process "$pid"; then
+                    kill -9 "$pid" 2>/dev/null || true
+                fi
             done
         fi
     done
@@ -1209,20 +1269,19 @@ PYEOF
     # ── Launch orchestrator in background, TUI in foreground ───────────
     _ORCH_PID=""
     _WORKFLOW_FILE="$workflow_file"
+    _PID_FILE="${wsroot_expanded}/.orchestrator.pid"
     cleanup() {
         if [[ -n "${_ORCH_PID:-}" ]] && kill -0 "$_ORCH_PID" 2>/dev/null; then
             kill -TERM "$_ORCH_PID" 2>/dev/null
             wait "$_ORCH_PID" 2>/dev/null || true
         fi
-        rm -f "${_WORKFLOW_FILE:-}"
+        rm -f "${_WORKFLOW_FILE:-}" "${_PID_FILE:-}"
     }
     trap cleanup EXIT INT TERM
 
-    # Kill any existing process on the port (portable, with verify)
-    if find_pid_on_port "${port_flag}" &>/dev/null; then
-        if ! kill_and_verify_port_free "${port_flag}"; then
-            die "Port ${port_flag} is still in use and could not be freed."
-        fi
+    # Free the port if held by a prior symphony process (verified by process name)
+    if ! kill_and_verify_port_free "${port_flag}"; then
+        die "Port ${port_flag} is in use by a non-symphony process and cannot be freed."
     fi
 
     # Verify escript is on PATH before backgrounding
@@ -1235,6 +1294,7 @@ PYEOF
     escript_bin="$(command -v escript)"
     "$escript_bin" "${cmd[@]}" </dev/null >"$orch_log" 2>&1 &
     _ORCH_PID=$!
+    echo "$_ORCH_PID" > "$_PID_FILE"
 
     # Wait for health check
     local api_url="http://localhost:${port_flag}"
