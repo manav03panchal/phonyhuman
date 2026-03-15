@@ -877,8 +877,12 @@ import sys, os, tomllib, json
 
 config_file, workflow_file, shim_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
-with open(config_file, "rb") as f:
-    cfg = tomllib.load(f)
+try:
+    with open(config_file, "rb") as f:
+        cfg = tomllib.load(f)
+except tomllib.TOMLDecodeError as e:
+    print(f"ERROR:Failed to parse {config_file}: {e}")
+    sys.exit(1)
 
 linear   = cfg.get("linear", {})
 repo     = cfg.get("repo", {})
@@ -1206,6 +1210,13 @@ cmd_run() {
         done <<< "$missing"
         echo ""
         die "Fill these in: $config_file"
+    fi
+
+    # Check for TOML parse errors
+    if echo "$output" | grep -q "^ERROR:"; then
+        local errmsg
+        errmsg=$(echo "$output" | grep "^ERROR:" | sed 's/^ERROR://')
+        die "$errmsg"
     fi
 
     # Extract exports (whitelist: only LINEAR_API_KEY and SOURCE_REPO_URL)
