@@ -90,11 +90,17 @@ defmodule SymphonyElixir.CLI do
     end
   end
 
-  defp eaddrinuse_error?(reason) when is_tuple(reason) do
-    reason |> :erlang.term_to_binary() |> :erlang.binary_to_list() |> List.to_string() =~ "eaddrinuse"
+  defp eaddrinuse_error?(:eaddrinuse), do: true
+
+  defp eaddrinuse_error?(term) when is_tuple(term) do
+    term |> Tuple.to_list() |> Enum.any?(&eaddrinuse_error?/1)
   end
 
-  defp eaddrinuse_error?(_reason), do: false
+  defp eaddrinuse_error?(term) when is_list(term) do
+    Enum.any?(term, &eaddrinuse_error?/1)
+  end
+
+  defp eaddrinuse_error?(_term), do: false
 
   defp detect_port_from_error(_reason), do: nil
 
