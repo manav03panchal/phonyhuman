@@ -333,7 +333,7 @@ defmodule SymphonyElixir.Linear.Client do
       token ->
         {:ok,
          [
-           {"Authorization", "Bearer " <> token},
+           {"Authorization", token},
            {"Content-Type", "application/json"}
          ]}
     end
