@@ -403,16 +403,12 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
           last_limit_failure_at: DateTime.utc_now()
         })
 
-      # Simulate clear_fleet_pause (called on probe success in :DOWN handler)
-      # We test through the public test helper
-      cleared = Orchestrator.trigger_fleet_pause_for_test(state, "will be cleared", 1)
+      # Verify the paused state is active
+      assert Orchestrator.fleet_paused_for_test?(state) == true
 
-      # The state after trigger has fleet_paused_until set
-      assert cleared.fleet_paused_until != nil
-
-      # Now test that fleet_paused_for_test? returns false after pause expires (1ms)
-      Process.sleep(10)
-      assert Orchestrator.fleet_paused_for_test?(cleared) == false
+      # Verify that a pause set in the past is detected as expired
+      expired_state = %{state | fleet_paused_until: DateTime.add(DateTime.utc_now(), -10, :second)}
+      assert Orchestrator.fleet_paused_for_test?(expired_state) == false
     end
 
     test "pause extension caps at maximum" do
@@ -567,6 +563,49 @@ defmodule SymphonyElixir.OrchestratorFleetPauseTest do
 
     test "parses retry_after from nested payload" do
       assert Orchestrator.parse_retry_after_for_test(%{payload: %{retry_after: 300_000}}) == 300_000
+    end
+
+    test "returns nil for zero retry_after" do
+      assert Orchestrator.parse_retry_after_for_test(%{retry_after: 0}) == nil
+    end
+
+    test "returns nil for negative retry_after" do
+      assert Orchestrator.parse_retry_after_for_test(%{retry_after: -5_000}) == nil
+    end
+  end
+
+  describe "retry_after edge cases in fleet pause" do
+    test "retry_after_ms of 0 clamps to minimum backoff" do
+      state = base_state()
+      updated = Orchestrator.trigger_fleet_pause_for_test(state, "zero retry", 0)
+
+      diff_ms = DateTime.diff(updated.fleet_paused_until, DateTime.utc_now(), :millisecond)
+      # Should be at least 1_000ms (minimum clamp), not 0
+      assert diff_ms >= 900
+      assert updated.fleet_pause_reason == "zero retry"
+    end
+
+    test "negative retry_after_ms clamps to minimum backoff" do
+      state = base_state()
+      updated = Orchestrator.trigger_fleet_pause_for_test(state, "negative retry", -10_000)
+
+      diff_ms = DateTime.diff(updated.fleet_paused_until, DateTime.utc_now(), :millisecond)
+      # Should be at least 1_000ms (minimum clamp), not negative/past
+      assert diff_ms >= 900
+      assert updated.fleet_pause_reason == "negative retry"
+    end
+
+    test "very large retry_after_ms caps at fleet_pause_max_ms" do
+      state = base_state()
+      huge_ms = 999_999_999
+      updated = Orchestrator.trigger_fleet_pause_for_test(state, "huge retry", huge_ms)
+
+      max_ms = Config.fleet_pause_max_ms()
+      diff_ms = DateTime.diff(updated.fleet_paused_until, DateTime.utc_now(), :millisecond)
+
+      # Should be capped at max_ms, not the huge value
+      assert diff_ms <= max_ms + 100
+      assert diff_ms > 0
     end
   end
 end
