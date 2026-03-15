@@ -7,7 +7,7 @@ defmodule SymphonyElixir.Linear.ClientErrorRedactionTest do
 
   describe "graphql/3 error logging" do
     test "redacts Authorization header from error reason in logs" do
-      headers_with_auth = [{"Authorization", "lin_api_secret_token"}, {"Content-Type", "application/json"}]
+      headers_with_auth = [{"Authorization", "Bearer lin_api_secret_token"}, {"Content-Type", "application/json"}]
 
       error_with_headers =
         {:error, %{reason: :connection_refused, request_headers: headers_with_auth}}

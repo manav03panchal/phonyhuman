@@ -691,4 +691,95 @@ defmodule SymphonyElixir.TelemetryCollectorTest do
       assert resp.status == 404
     end
   end
+
+  describe "listener lifecycle (HUM-120)" do
+    test "listener is linked to collector — dies when collector exits" do
+      collector_name = :"link_collector_#{System.unique_integer([:positive])}"
+
+      # Trap exits so the test process survives the collector being killed
+      Process.flag(:trap_exit, true)
+
+      {:ok, collector} =
+        TelemetryCollector.start_link(
+          name: collector_name,
+          port: 0,
+          orchestrator: self()
+        )
+
+      # Grab the listener pid from GenServer state
+      %{listener_ref: listener_pid} = :sys.get_state(collector)
+      assert is_pid(listener_pid)
+      assert Process.alive?(listener_pid)
+
+      # Monitor the listener to detect when it exits
+      listener_mon = Process.monitor(listener_pid)
+
+      # Kill the collector abruptly (simulates a crash)
+      Process.exit(collector, :kill)
+
+      # Listener must die because it's linked to the collector
+      assert_receive {:DOWN, ^listener_mon, :process, ^listener_pid, _reason}, 2_000
+      refute Process.alive?(listener_pid)
+    after
+      Process.flag(:trap_exit, false)
+    end
+
+    test "collector state does not contain listener_monitor key" do
+      collector_name = :"no_mon_#{System.unique_integer([:positive])}"
+
+      {:ok, collector} =
+        TelemetryCollector.start_link(
+          name: collector_name,
+          port: 0,
+          orchestrator: self()
+        )
+
+      state = :sys.get_state(collector)
+      refute Map.has_key?(state, :listener_monitor)
+
+      GenServer.stop(collector)
+    end
+
+    test "supervised collector restarts cleanly on same port after crash" do
+      # Start a minimal supervisor wrapping the collector
+      port = 0
+      collector_name = :"sup_collector_#{System.unique_integer([:positive])}"
+
+      children = [
+        %{
+          id: :test_collector,
+          start: {TelemetryCollector, :start_link, [[name: collector_name, port: port, orchestrator: self()]]}
+        }
+      ]
+
+      {:ok, sup} = Supervisor.start_link(children, strategy: :one_for_one)
+
+      # Verify it started
+      collector = Process.whereis(collector_name)
+      assert collector != nil
+      assert Process.alive?(collector)
+      %{listener_ref: listener1} = :sys.get_state(collector)
+      assert is_pid(listener1)
+
+      # Kill the collector to trigger supervisor restart
+      Process.exit(collector, :kill)
+      :timer.sleep(200)
+
+      # Supervisor should have restarted it
+      new_collector = Process.whereis(collector_name)
+      assert new_collector != nil
+      assert new_collector != collector
+      assert Process.alive?(new_collector)
+
+      # New listener should be running (no eaddrinuse)
+      %{listener_ref: listener2} = :sys.get_state(new_collector)
+      assert is_pid(listener2)
+      assert Process.alive?(listener2)
+
+      # Old listener should be dead
+      refute Process.alive?(listener1)
+
+      Supervisor.stop(sup)
+    end
+  end
 end
