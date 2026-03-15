@@ -14,16 +14,19 @@ defmodule SymphonyElixir.WorkflowStoreTest do
       assert w2.config["agent"]["max_concurrent_agents"] == 3
     end
 
-    test "workflow reloads when file mtime changes" do
+    test "workflow reloads via poll path when file mtime changes" do
       path = Workflow.workflow_file_path()
       write_workflow_file!(path, max_concurrent_agents: 4)
 
       {:ok, w1} = WorkflowStore.current()
       assert w1.config["agent"]["max_concurrent_agents"] == 4
 
-      # Ensure mtime advances (filesystem may have 1s resolution)
+      # Write new content directly (not via write_workflow_file! which triggers force_reload)
+      # so that current() exercises reload_current_path → reload_path → load_state success path
       Process.sleep(1_100)
-      write_workflow_file!(path, max_concurrent_agents: 7)
+      old_content = File.read!(path)
+      new_content = String.replace(old_content, "max_concurrent_agents: 4", "max_concurrent_agents: 7")
+      File.write!(path, new_content)
 
       {:ok, w2} = WorkflowStore.current()
       assert w2.config["agent"]["max_concurrent_agents"] == 7
