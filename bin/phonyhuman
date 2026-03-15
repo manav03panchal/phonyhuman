@@ -75,6 +75,20 @@ fi
 
 die() { echo ""; red "  ERROR: $1"; echo ""; exit 1; }
 
+# Return a user-private temp directory (mode 0700) for sensitive temp files.
+# Prefers $XDG_RUNTIME_DIR (per-user, RAM-backed on most Linux),
+# falls back to $PHONYHUMAN_HOME/tmp.
+private_tmpdir() {
+    local d="${XDG_RUNTIME_DIR:-}"
+    if [[ -n "$d" && -d "$d" ]]; then
+        d="$d/phonyhuman"
+    else
+        d="$PHONYHUMAN_HOME/tmp"
+    fi
+    mkdir -p "$d" && chmod 700 "$d"
+    echo "$d"
+}
+
 banner() {
     echo ""
     echo "  🤪 $(bold "phonyhuman") $(dim "v$VERSION")"
@@ -1173,7 +1187,10 @@ cmd_run() {
 
     # ── Parse config and generate workflow ────────────────────────────
     local workflow_file
-    workflow_file=$(mktemp /tmp/phonyhuman-workflow-XXXXXX.md)
+    local priv_tmp
+    priv_tmp=$(private_tmpdir)
+    workflow_file=$(mktemp "$priv_tmp/phonyhuman-workflow-XXXXXX.md")
+    chmod 600 "$workflow_file"
     trap 'rm -f "${workflow_file:-}"' EXIT
 
     local output
