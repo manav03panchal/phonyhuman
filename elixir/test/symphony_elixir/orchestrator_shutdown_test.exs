@@ -127,8 +127,6 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
       initial_state = :sys.get_state(pid)
 
       send(pid, :tick)
-      Process.sleep(50)
-
       state_after_tick = :sys.get_state(pid)
 
       # poll_check_in_progress should NOT have changed to true
@@ -148,8 +146,6 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
       initial_state = :sys.get_state(pid)
 
       send(pid, :run_poll_cycle)
-      Process.sleep(50)
-
       state_after_poll = :sys.get_state(pid)
 
       assert map_size(state_after_poll.running) == map_size(initial_state.running)
@@ -270,6 +266,7 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
 
       task_pid = spawn_unlinked(fn -> Process.sleep(:infinity) end)
       assert Process.alive?(task_pid)
+      task_ref = Process.monitor(task_pid)
 
       inject_running_entry(pid, "issue-orphan-1", "MT-901", task_pid)
 
@@ -286,8 +283,7 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
         assert graceful_stop(pid, 10_000) == :ok
       end)
 
-      # Give a moment for the force-kill to propagate
-      Process.sleep(50)
+      assert_receive {:DOWN, ^task_ref, :process, ^task_pid, _}, 1_000
 
       refute Process.alive?(pid)
       refute Process.alive?(task_pid)
