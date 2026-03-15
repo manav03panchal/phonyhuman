@@ -240,8 +240,26 @@ ensure_runtime() {
 
     # Install mise if needed
     if ! command -v mise &>/dev/null; then
+        local mise_url="https://mise.jdx.dev/install.sh"
+        echo ""
+        yellow "  mise is not installed. phonyhuman needs mise to install Erlang/OTP."; echo ""
+        yellow "  This will download and execute a script from:"; echo ""
+        echo "    $mise_url"
+        echo ""
+        yellow "  Tip: set PHONYHUMAN_YES=1 to skip this prompt in automation."; echo ""
+        echo ""
+
+        if [[ "${PHONYHUMAN_YES:-}" != "1" ]]; then
+            read -rp "  Proceed with mise installation? [y/N] " answer </dev/tty
+            if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+                die "Aborted. Install mise manually:
+  curl -sSL $mise_url | sh
+  # Then retry: phonyhuman run <config>"
+            fi
+        fi
+
         echo "  Installing mise..."
-        if curl -sSL https://mise.jdx.dev/install.sh | sh 2>/dev/null; then
+        if curl -sSL "$mise_url" | sh 2>/dev/null; then
             export PATH="$HOME/.local/bin:$PATH"
         else
             die "Could not install mise. Install Erlang manually: https://mise.jdx.dev"
