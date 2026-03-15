@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -295,5 +296,27 @@ func TestPoll_ContextCancelledImmediately(t *testing.T) {
 		// Poll returned as expected
 	case <-time.After(2 * time.Second):
 		t.Fatal("Poll did not return after context cancellation")
+	}
+}
+
+func TestDoGet_OversizedResponseIsCapped(t *testing.T) {
+	// Serve a response larger than maxResponseBody (10 MB).
+	oversized := strings.Repeat("X", maxResponseBody+1024)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(oversized))
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL)
+	body, err := c.doGet(context.Background(), srv.URL+"/test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(body) > maxResponseBody {
+		t.Errorf("body length = %d, want <= %d", len(body), maxResponseBody)
+	}
+	if len(body) != maxResponseBody {
+		t.Errorf("body length = %d, want exactly %d (capped by LimitReader)", len(body), maxResponseBody)
 	}
 }

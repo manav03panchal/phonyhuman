@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	defaultTimeout = 5 * time.Second
-	maxRetries     = 3
-	retryBaseDelay = 500 * time.Millisecond
-	statePath      = "/api/v1/state"
-	healthPath     = "/health"
-	fleetPausePath = "/api/v1/fleet/pause"
+	defaultTimeout  = 5 * time.Second
+	maxRetries      = 3
+	retryBaseDelay  = 500 * time.Millisecond
+	maxResponseBody = 10 << 20 // 10 MB
+	statePath       = "/api/v1/state"
+	healthPath      = "/health"
+	fleetPausePath  = "/api/v1/fleet/pause"
 	fleetResumePath = "/api/v1/fleet/resume"
 )
 
@@ -178,7 +179,7 @@ func (c *Client) doPost(ctx context.Context, path string, body []byte) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, respBody)
 	}
 	return nil
@@ -225,7 +226,7 @@ func (c *Client) doGet(ctx context.Context, endpoint string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return nil, &TransientError{Err: fmt.Errorf("read body: %w", err)}
 	}
