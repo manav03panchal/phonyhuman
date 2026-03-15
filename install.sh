@@ -417,7 +417,11 @@ echo ""
 
 if [ "$ALREADY_IN_PATH" = false ]; then
     yellow "  Restart your shell or run:"; echo ""
-    echo "    $(cyan "source ~/.${SHELL_NAME}rc")"
+    if [ "$SHELL_NAME" = "fish" ]; then
+        echo "    $(cyan "source ~/.config/fish/config.fish")"
+    else
+        echo "    $(cyan "source ~/.${SHELL_NAME}rc")"
+    fi
     echo ""
 fi
 
