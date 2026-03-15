@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -454,5 +456,194 @@ func TestSSE_BackoffResetsAfterHealthyConnection(t *testing.T) {
 		}
 	case <-timer.C:
 		t.Fatal("timed out — backoff likely not reset after healthy connection")
+	}
+}
+
+func TestSSE_RetriesOnServerError(t *testing.T) {
+	// Server returns 500 for first two attempts, then sends a real event.
+	var connCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != eventsPath {
+			http.NotFound(w, r)
+			return
+		}
+		n := atomic.AddInt32(&connCount, 1)
+		if n <= 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		fmt.Fprint(w, "event: state_update\ndata: {\"generated_at\":\"t1\",\"fleet_status\":\"running\"}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sub := &SSESubscription{
+		url:               server.URL + eventsPath,
+		httpClient:        &http.Client{},
+		events:            make(chan SSEEvent, 16),
+		ctx:               ctx,
+		cancel:            cancel,
+		idleTimeout:       5 * time.Second,
+		minBackoff:        50 * time.Millisecond,
+		backoffResetAfter: 30 * time.Second,
+	}
+	go sub.loop()
+
+	select {
+	case ev, ok := <-sub.events:
+		if !ok {
+			t.Fatal("channel closed before receiving event")
+		}
+		if ev.Type != "state_update" {
+			t.Fatalf("expected state_update, got %q", ev.Type)
+		}
+		got := atomic.LoadInt32(&connCount)
+		if got < 3 {
+			t.Fatalf("expected at least 3 connection attempts, got %d", got)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for event after retries")
+	}
+}
+
+func TestSSE_BackoffIncreasesExponentially(t *testing.T) {
+	// Server accepts each connection and closes immediately (EOF), triggering
+	// retries. We record timestamps to verify that gaps between attempts grow.
+	var mu sync.Mutex
+	var timestamps []time.Time
+
+	const wantAttempts = 4
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != eventsPath {
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		timestamps = append(timestamps, time.Now())
+		mu.Unlock()
+		// Return 200 + flush then close → EOF on client side → reconnect.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sub := &SSESubscription{
+		url:               server.URL + eventsPath,
+		httpClient:        &http.Client{},
+		events:            make(chan SSEEvent, 16),
+		ctx:               ctx,
+		cancel:            cancel,
+		idleTimeout:       5 * time.Second,
+		minBackoff:        50 * time.Millisecond,
+		backoffResetAfter: 30 * time.Second,
+	}
+	go sub.loop()
+
+	// Wait until enough connection attempts have occurred.
+	deadline := time.After(4 * time.Second)
+	for {
+		mu.Lock()
+		n := len(timestamps)
+		mu.Unlock()
+		if n >= wantAttempts {
+			break
+		}
+		select {
+		case <-deadline:
+			mu.Lock()
+			n = len(timestamps)
+			mu.Unlock()
+			t.Fatalf("only got %d connection attempts, wanted %d", n, wantAttempts)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// With minBackoff=50ms and factor=2, the gaps should roughly double each
+	// time: 50ms, 100ms, 200ms. Verify the last gap is at least 2× the first
+	// gap, allowing generous tolerance for scheduling jitter.
+	firstGap := timestamps[1].Sub(timestamps[0])
+	lastGap := timestamps[len(timestamps)-1].Sub(timestamps[len(timestamps)-2])
+	if lastGap < firstGap*2 {
+		t.Fatalf("backoff did not increase: first gap %v, last gap %v (expected last >= 2× first)", firstGap, lastGap)
+	}
+}
+
+func TestSSE_ReconnectsAfterServerRecovery(t *testing.T) {
+	// Server starts "down" (503), then switches to serving events. The client
+	// should keep retrying until the server recovers, then deliver the event.
+	var serverUp int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != eventsPath {
+			http.NotFound(w, r)
+			return
+		}
+		if atomic.LoadInt32(&serverUp) == 0 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		fmt.Fprint(w, "event: state_update\ndata: {\"generated_at\":\"t1\",\"fleet_status\":\"running\"}\n\n")
+		flusher.Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sub := &SSESubscription{
+		url:               server.URL + eventsPath,
+		httpClient:        &http.Client{},
+		events:            make(chan SSEEvent, 16),
+		ctx:               ctx,
+		cancel:            cancel,
+		idleTimeout:       5 * time.Second,
+		minBackoff:        50 * time.Millisecond,
+		backoffResetAfter: 30 * time.Second,
+	}
+	go sub.loop()
+
+	// Let client fail a few times, then bring server up.
+	time.Sleep(200 * time.Millisecond)
+	atomic.StoreInt32(&serverUp, 1)
+
+	select {
+	case ev, ok := <-sub.events:
+		if !ok {
+			t.Fatal("channel closed before receiving event")
+		}
+		if ev.Type != "state_update" {
+			t.Fatalf("expected state_update, got %q", ev.Type)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out — client did not reconnect after server recovery")
 	}
 }
