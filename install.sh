@@ -182,6 +182,53 @@ else
     yellow "  Warning: checksums.txt not found in release, skipping verification"; echo ""
 fi
 
+# ── Verify GPG signature ──────────────────────────────────────────
+SIG_URL=$(echo "$RELEASE_JSON" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for asset in data.get('assets', []):
+    if asset['name'] == 'checksums.txt.asc':
+        print(asset['browser_download_url'])
+        sys.exit(0)
+" 2>/dev/null)
+
+if [ -n "$SIG_URL" ]; then
+    if command -v gpg >/dev/null 2>&1; then
+        echo "  Verifying GPG signature..."
+
+        if [ -n "$AUTH_HEADER" ]; then
+            curl -sSL -H "$AUTH_HEADER" -o "$TMPDIR/checksums.txt.asc" "$SIG_URL" || die "Failed to download GPG signature"
+        else
+            curl -sSL -o "$TMPDIR/checksums.txt.asc" "$SIG_URL" || die "Failed to download GPG signature"
+        fi
+
+        KEY_URL="https://raw.githubusercontent.com/$GITHUB_REPO/main/release-signing-key.asc"
+        if [ -n "$AUTH_HEADER" ]; then
+            curl -sSL -H "$AUTH_HEADER" -o "$TMPDIR/release-key.asc" "$KEY_URL" || die "Failed to download signing key"
+        else
+            curl -sSL -o "$TMPDIR/release-key.asc" "$KEY_URL" || die "Failed to download signing key"
+        fi
+
+        export GNUPGHOME="$TMPDIR/gnupg"
+        mkdir -p "$GNUPGHOME"
+        chmod 700 "$GNUPGHOME"
+
+        gpg --batch --quiet --import "$TMPDIR/release-key.asc" 2>/dev/null
+
+        if gpg --batch --verify "$TMPDIR/checksums.txt.asc" "$TMPDIR/checksums.txt" 2>/dev/null; then
+            green "  GPG signature verified"; echo ""
+        else
+            die "GPG signature verification failed! The release may have been tampered with."
+        fi
+
+        unset GNUPGHOME
+    else
+        yellow "  Warning: gpg not found, skipping signature verification"; echo ""
+    fi
+else
+    yellow "  Warning: No GPG signature found in release, skipping signature verification"; echo ""
+fi
+
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
