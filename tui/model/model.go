@@ -13,6 +13,14 @@ import (
 
 const pollInterval = 2 * time.Second
 
+// viewMode tracks which screen is active.
+type viewMode int
+
+const (
+	viewDashboard viewMode = iota
+	viewDetail
+)
+
 // promptMode tracks confirmation dialog state.
 type promptMode int
 
@@ -34,6 +42,12 @@ type fleetActionMsg struct {
 	err error
 }
 
+// issueDetailMsg carries the result of fetching issue detail from the API.
+type issueDetailMsg struct {
+	detail *types.IssueDetail
+	err    error
+}
+
 // sseClosedMsg signals the SSE subscription ended (404 or terminal error).
 type sseClosedMsg struct{}
 
@@ -48,16 +62,19 @@ const pollTimeout = 10 * time.Second
 
 // Model is the Bubble Tea model for the Symphony TUI dashboard.
 type Model struct {
-	client  *client.Client
-	width   int
-	height  int
-	cursor  int
-	stateAt time.Time
-	prompt  promptMode
-	metrics types.AgentMetrics
-	limits  []types.RateLimit
-	project types.ProjectInfo
-	agents  []types.Agent
+	client      *client.Client
+	width       int
+	height      int
+	cursor      int
+	stateAt     time.Time
+	prompt      promptMode
+	view        viewMode
+	detailAgent *types.Agent
+	statusText  string // transient status message (errors, etc.)
+	metrics     types.AgentMetrics
+	limits      []types.RateLimit
+	project     types.ProjectInfo
+	agents      []types.Agent
 
 	// Lifecycle context — cancelled on model teardown to stop SSE/poll goroutines.
 	ctx    context.Context
@@ -144,12 +161,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tickCmd()
+
+	case issueDetailMsg:
+		if msg.err == nil && msg.detail != nil && m.detailAgent != nil {
+			d := msg.detail
+			if d.Title != nil && *d.Title != "" {
+				m.detailAgent.Title = *d.Title
+			}
+			if d.Description != nil && *d.Description != "" {
+				m.detailAgent.Description = *d.Description
+			}
+			if d.URL != nil && *d.URL != "" {
+				m.detailAgent.URL = *d.URL
+			}
+			if len(d.Labels) > 0 {
+				m.detailAgent.Labels = d.Labels
+			}
+		}
+		return m, nil
+
+	case tmuxResultMsg:
+		if msg.err != nil {
+			m.statusText = msg.err.Error()
+		} else {
+			m.statusText = ""
+		}
+		return m, nil
 	}
 	return m, nil
 }
 
 // View renders the dashboard.
 func (m Model) View() string {
+	if m.view == viewDetail && m.detailAgent != nil {
+		return view.RenderDetailView(*m.detailAgent, m.width, m.height, m.statusText)
+	}
 	return view.RenderDashboard(view.DashboardData{
 		Width:        m.width,
 		Height:       m.height,
@@ -170,7 +216,28 @@ func (m Model) View() string {
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Handle confirmation prompts first.
+	// Detail view keys — handle first.
+	if m.view == viewDetail {
+		switch key {
+		case "esc", "backspace":
+			m.view = viewDashboard
+			m.detailAgent = nil
+			m.statusText = ""
+		case "a":
+			if m.detailAgent != nil {
+				m.statusText = ""
+				return m, openAgentTmux(*m.detailAgent)
+			}
+		case "q", "ctrl+c":
+			m.prompt = promptConfirmQuit
+			m.view = viewDashboard
+			m.detailAgent = nil
+			m.statusText = ""
+		}
+		return m, nil
+	}
+
+	// Handle confirmation prompts.
 	if m.prompt == promptConfirmPause {
 		switch key {
 		case "y", "Y":
@@ -221,9 +288,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if len(m.agents) > 0 && m.cursor < len(m.agents) {
-			return m, func() tea.Msg {
-				return types.AgentSelectedMsg{Agent: m.agents[m.cursor]}
-			}
+			agent := m.agents[m.cursor]
+			m.detailAgent = &agent
+			m.view = viewDetail
+			m.statusText = ""
+			return m, m.fetchIssueDetail(agent.ID)
 		}
 	case "p":
 		if m.state != nil && m.state.FleetStatus == "paused" {
@@ -365,8 +434,25 @@ func (m *Model) syncMetrics() {
 		}
 		totalAgentSec += agentElapsed
 
+		title := ""
+		if e.Title != nil {
+			title = *e.Title
+		}
+		desc := ""
+		if e.Description != nil {
+			desc = *e.Description
+		}
+		agentURL := ""
+		if e.URL != nil {
+			agentURL = *e.URL
+		}
+
 		m.agents = append(m.agents, types.Agent{
 			ID:              e.IssueIdentifier,
+			Title:           title,
+			Description:     desc,
+			URL:             agentURL,
+			Labels:          e.Labels,
 			Stage:           e.State,
 			StartedAt:       started,
 			InputTokens:     e.Tokens.InputTokens,
@@ -386,6 +472,45 @@ func (m *Model) syncMetrics() {
 	// Clamp cursor after agent list changes
 	if m.cursor >= len(m.agents) && len(m.agents) > 0 {
 		m.cursor = len(m.agents) - 1
+	}
+
+	// Keep detail view in sync with latest agent data
+	if m.detailAgent != nil {
+		found := false
+		for i := range m.agents {
+			if m.agents[i].ID == m.detailAgent.ID {
+				// Preserve issue detail fields from API fetch if state data is empty
+				prev := m.detailAgent
+				m.detailAgent = &m.agents[i]
+				if m.detailAgent.Title == "" && prev.Title != "" {
+					m.detailAgent.Title = prev.Title
+				}
+				if m.detailAgent.Description == "" && prev.Description != "" {
+					m.detailAgent.Description = prev.Description
+				}
+				if m.detailAgent.URL == "" && prev.URL != "" {
+					m.detailAgent.URL = prev.URL
+				}
+				if len(m.detailAgent.Labels) == 0 && len(prev.Labels) > 0 {
+					m.detailAgent.Labels = prev.Labels
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.detailAgent = nil
+			m.view = viewDashboard
+		}
+	}
+}
+
+func (m Model) fetchIssueDetail(identifier string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+		defer cancel()
+		detail, err := m.client.FetchIssueDetail(ctx, identifier)
+		return issueDetailMsg{detail: detail, err: err}
 	}
 }
 

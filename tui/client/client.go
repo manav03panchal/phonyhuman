@@ -22,6 +22,7 @@ const (
 	maxResponseBody = 10 << 20 // 10 MB
 	statePath       = "/api/v1/state"
 	healthPath      = "/health"
+	issuePath       = "/api/v1/"
 	fleetPausePath  = "/api/v1/fleet/pause"
 	fleetResumePath = "/api/v1/fleet/resume"
 )
@@ -95,6 +96,20 @@ func (c *Client) FetchState(ctx context.Context) (*types.State, error) {
 		return nil, fmt.Errorf("decode state: %w", err)
 	}
 	return &state, nil
+}
+
+// FetchIssueDetail calls GET /api/v1/:identifier and returns issue details.
+func (c *Client) FetchIssueDetail(ctx context.Context, identifier string) (*types.IssueDetail, error) {
+	body, err := c.getWithRetry(ctx, issuePath+identifier)
+	if err != nil {
+		return nil, fmt.Errorf("fetch issue: %w", err)
+	}
+
+	var detail types.IssueDetail
+	if err := json.Unmarshal(body, &detail); err != nil {
+		return nil, fmt.Errorf("decode issue: %w", err)
+	}
+	return &detail, nil
 }
 
 // FetchHealth calls GET /health and returns the deserialized health status.

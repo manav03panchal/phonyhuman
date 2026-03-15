@@ -53,8 +53,8 @@ func sampleState() *types.State {
 // sampleAgents returns per-agent data for testing.
 func sampleAgents() []types.Agent {
 	return []types.Agent{
-		{ID: "HUM-59", Stage: "running", InputTokens: 50000, OutputTokens: 12000, CacheReadTokens: 8000, CostUSD: 0.34, Model: "claude-sonnet-4-20250514", SessionID: "sess-abc-123", Status: types.StatusActive},
-		{ID: "HUM-60", Stage: "error", InputTokens: 8000, OutputTokens: 1500, CacheReadTokens: 2000, CostUSD: 0.05, Model: "claude-sonnet-4-20250514", SessionID: "sess-def-456", Status: types.StatusError},
+		{ID: "HUM-59", Title: "Fix auth middleware for CORS", URL: "https://linear.app/humancorp/issue/HUM-59", Labels: []string{"bug", "security"}, Stage: "running", InputTokens: 50000, OutputTokens: 12000, CacheReadTokens: 8000, CostUSD: 0.34, Model: "claude-sonnet-4-20250514", SessionID: "sess-abc-123", Status: types.StatusActive},
+		{ID: "HUM-60", Title: "Add rate limiting", Stage: "error", InputTokens: 8000, OutputTokens: 1500, CacheReadTokens: 2000, CostUSD: 0.05, Model: "claude-sonnet-4-20250514", SessionID: "sess-def-456", Status: types.StatusError},
 	}
 }
 
@@ -206,7 +206,7 @@ func TestRenderFooter_NoPanic(t *testing.T) {
 
 	// Should contain key binding labels.
 	got := RenderFooter(80)
-	for _, want := range []string{"Quit", "Pause/Resume", "Navigate", "Select"} {
+	for _, want := range []string{"Quit", "Pause/Resume", "Navigate", "Detail"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("RenderFooter missing %q", want)
 		}
@@ -471,5 +471,38 @@ func TestTruncError_MultiByte(t *testing.T) {
 	want := "エラー 接続失敗"
 	if got := truncError(withNL); got != want {
 		t.Errorf("truncError(%q) = %q, want %q", withNL, got, want)
+	}
+}
+
+func TestRenderDetailView_NoPanic(t *testing.T) {
+	agents := sampleAgents()
+	for _, a := range agents {
+		for _, w := range testWidths {
+			_ = RenderDetailView(a, w, 50, "")
+		}
+	}
+}
+
+func TestRenderDetailView_WithStatus(t *testing.T) {
+	a := sampleAgents()[0]
+	got := RenderDetailView(a, 80, 50, "not inside a tmux session")
+	if got == "" {
+		t.Error("RenderDetailView with status returned empty string")
+	}
+}
+
+func TestRenderDetailView_EmptyAgent(t *testing.T) {
+	a := types.Agent{ID: "HUM-99", Status: types.StatusDefault}
+	got := RenderDetailView(a, 80, 50, "")
+	if got == "" {
+		t.Error("RenderDetailView returned empty string")
+	}
+}
+
+func TestRenderDetailView_ZeroWidth(t *testing.T) {
+	a := sampleAgents()[0]
+	got := RenderDetailView(a, 0, 50, "")
+	if got != "Loading..." {
+		t.Errorf("expected Loading..., got %q", got)
 	}
 }

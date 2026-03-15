@@ -47,9 +47,13 @@ type Tokens struct {
 
 // AgentEntry represents a currently running agent in the orchestrator.
 type AgentEntry struct {
-	IssueID           string  `json:"issue_id"`
-	IssueIdentifier   string  `json:"issue_identifier"`
-	State             string  `json:"state"`
+	IssueID           string   `json:"issue_id"`
+	IssueIdentifier   string   `json:"issue_identifier"`
+	Title             *string  `json:"title"`
+	Description       *string  `json:"description"`
+	URL               *string  `json:"url"`
+	Labels            []string `json:"labels"`
+	State             string   `json:"state"`
 	SessionID         string  `json:"session_id"`
 	TurnCount         int     `json:"turn_count"`
 	LastEvent         *string `json:"last_event"`
@@ -108,6 +112,21 @@ type RateLimits struct {
 type Bucket struct {
 	Capacity  int `json:"capacity"`
 	Remaining int `json:"remaining"`
+}
+
+// IssueDetail represents the response from GET /api/v1/:issue_identifier.
+type IssueDetail struct {
+	IssueIdentifier string   `json:"issue_identifier"`
+	IssueID         string   `json:"issue_id"`
+	Title           *string  `json:"title"`
+	Description     *string  `json:"description"`
+	URL             *string  `json:"url"`
+	Labels          []string `json:"labels"`
+	Status          string   `json:"status"`
+	Workspace       *struct {
+		Path string `json:"path"`
+	} `json:"workspace"`
+	LastError *string `json:"last_error"`
 }
 
 // Health represents the response from GET /health.
@@ -210,6 +229,10 @@ func (s AgentStatus) StatusColor() string {
 // It is converted from AgentEntry by the table adapter layer.
 type Agent struct {
 	ID              string      `json:"id"`
+	Title           string      `json:"title"`
+	Description     string      `json:"description"`
+	URL             string      `json:"url"`
+	Labels          []string    `json:"labels"`
 	Stage           string      `json:"stage"`
 	StartedAt       time.Time   `json:"started_at"`
 	InputTokens     int         `json:"input_tokens"`

@@ -253,7 +253,15 @@ Each running entry tracks both accumulated and last-reported values:
   cache_read_tokens: integer,
   cache_creation_tokens: integer,
   cost_usd: float,
-  model: string | nil
+  model: string | nil,
+  tool_calls: integer,
+  tool_duration_total_ms: integer,
+  tool_errors: integer,
+  api_errors: integer,
+  lines_changed: integer,
+  commits_count: integer,
+  prs_count: integer,
+  active_time_seconds: integer
 }
 ```
 

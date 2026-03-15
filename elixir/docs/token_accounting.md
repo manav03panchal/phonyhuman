@@ -75,7 +75,7 @@ The `result` event carries metadata alongside usage:
 
 ## How The Shim Forwards Events
 
-The shim (`claude-shim.py`) wraps the Claude CLI process and bridges its output into the JSON-RPC notification stream that `app_server.ex` consumes.
+The shim (`claude-shim.py`) wraps the Claude CLI process and bridges its output into the JSON-RPC notification stream that `agent_server/server.ex` consumes.
 
 ### Event Forwarding
 
@@ -113,9 +113,9 @@ When the Claude process exits successfully, the shim sends a `turn/completed` no
 
 The `turn/completed` notification signals the end of the turn. Token usage arrives via the `result` event forwarded as an `item/message` notification.
 
-## How The App Server Processes Events
+## How The Agent Server Processes Events
 
-`app_server.ex` receives the JSON-RPC stream from the shim and routes events:
+`agent_server/server.ex` receives the JSON-RPC stream from the shim and routes events:
 
 1. **Notification parsing**: Each incoming JSON line is decoded. The `method` field determines routing.
 2. **Usage extraction**: For every payload, `maybe_set_usage/2` checks for a `usage` key. If found and it is a map, it is attached to the event metadata:
@@ -144,7 +144,19 @@ Global totals are tracked in `state.agent_totals`:
   input_tokens: 0,
   output_tokens: 0,
   total_tokens: 0,
-  seconds_running: 0
+  seconds_running: 0,
+  cache_read_tokens: 0,
+  cache_creation_tokens: 0,
+  cost_usd: 0.0,
+  model: nil,
+  tool_calls: 0,
+  tool_duration_total_ms: 0,
+  tool_errors: 0,
+  api_errors: 0,
+  lines_changed: 0,
+  commits_count: 0,
+  prs_count: 0,
+  active_time_seconds: 0
 }
 ```
 
@@ -220,18 +232,18 @@ Even though each turn provides a single cumulative usage value, the orchestrator
 | `turn_count`      | Per-entry | Incremented on each turn completion       |
 | `seconds_running` | Global    | Accumulated wall-clock time               |
 
-### What Symphony Does Not Track (Yet)
+### OTel-Sourced Totals
 
-The following fields are available in the Claude Code result event but are not currently extracted by the orchestrator:
+On agent completion, OTel metrics (tool executions, API errors, lines changed, commits, PRs, active time) are folded into `agent_totals` via `record_session_completion_totals/2`. These fields use high-water-mark semantics (`max(old, new)`) rather than additive deltas:
 
-- `cost_usd` -- per-turn cost estimate
-- `model` -- model identifier
-- `duration_ms` -- per-turn wall-clock duration
-- `num_turns` -- agentic sub-turns within a single invocation
-- `cache_read_input_tokens` -- prompt cache reads
-- `cache_creation_input_tokens` -- prompt cache writes
-
-These fields are forwarded through the event stream and can be extracted if needed.
+- `tool_calls` -- total tool invocations (additive)
+- `tool_duration_total_ms` -- cumulative tool execution time (additive)
+- `tool_errors` -- tool execution failures (additive)
+- `api_errors` -- API call failures (additive)
+- `lines_changed` -- lines modified (high-water mark)
+- `commits_count` -- commits created (high-water mark)
+- `prs_count` -- PRs created (high-water mark)
+- `active_time_seconds` -- active coding time (high-water mark)
 
 ## Implementation Reference
 

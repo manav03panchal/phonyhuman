@@ -1092,6 +1092,10 @@ defmodule SymphonyElixir.Orchestrator do
         %{
           issue_id: issue_id,
           identifier: metadata.identifier,
+          title: metadata.issue.title,
+          description: metadata.issue.description,
+          url: metadata.issue.url,
+          labels: SymphonyElixir.Linear.Issue.label_names(metadata.issue),
           state: metadata.issue.state,
           session_id: metadata.session_id,
           agent_app_server_pid: metadata.agent_app_server_pid,

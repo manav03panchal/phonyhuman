@@ -68,6 +68,10 @@ defmodule SymphonyElixirWeb.Presenter do
     %{
       issue_identifier: issue_identifier,
       issue_id: issue_id_from_entries(running, retry),
+      title: running && Map.get(running, :title),
+      description: running && Map.get(running, :description),
+      url: running && Map.get(running, :url),
+      labels: (running && Map.get(running, :labels, [])) || [],
       status: issue_status(running, retry),
       attempts: %{
         restart_count: restart_count(retry),
@@ -103,6 +107,10 @@ defmodule SymphonyElixirWeb.Presenter do
     %{
       issue_id: entry.issue_id,
       issue_identifier: entry.identifier,
+      title: Map.get(entry, :title),
+      description: Map.get(entry, :description),
+      url: Map.get(entry, :url),
+      labels: Map.get(entry, :labels, []),
       state: entry.state,
       session_id: entry.session_id,
       turn_count: Map.get(entry, :turn_count, 0),

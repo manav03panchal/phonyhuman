@@ -214,9 +214,14 @@ type col struct {
 }
 
 func agentRow(a types.Agent, cols []col, idx int, selected bool) string {
-	// Status dot
-	dot := lipgloss.NewStyle().Foreground(lipgloss.Color(a.Status.StatusColor())).Render("●")
-	id := dot + " " + truncStr(a.ID, cols[0].width-3)
+	// Status dot — use ▸ cursor for selected row, ● otherwise
+	var indicator string
+	if selected {
+		indicator = lipgloss.NewStyle().Foreground(colorCyan).Bold(true).Render("▸")
+	} else {
+		indicator = lipgloss.NewStyle().Foreground(lipgloss.Color(a.Status.StatusColor())).Render("●")
+	}
+	id := indicator + " " + truncStr(a.ID, cols[0].width-3)
 
 	// Age
 	age := fmtAge(a.StartedAt)
@@ -258,30 +263,16 @@ func agentRow(a types.Agent, cols []col, idx int, selected bool) string {
 		lastEvent = a.LastEventStr
 	}
 
-	// Row background — alternating or selected
-	var bg lipgloss.Color
-	if selected {
-		bg = colorSelected
-	} else if idx%2 == 0 {
-		bg = colorRowEven
-	} else {
-		bg = colorRowOdd
-	}
-
-	withBg := func(s lipgloss.Style) lipgloss.Style {
-		return s.Background(bg)
-	}
-
 	parts := []string{
-		withBg(lipgloss.NewStyle()).Width(cols[0].width).Render(id),
-		withBg(stateStyle).Width(cols[1].width).Render(a.Stage),
-		withBg(cellDim).Width(cols[2].width).Render(age),
-		withBg(metricVal).Width(cols[3].width).Render(fmtCompactTokens(a.InputTokens)),
-		withBg(metricVal).Width(cols[4].width).Render(fmtCompactTokens(a.OutputTokens)),
-		withBg(metricVal).Width(cols[5].width).Render(fmtCompactTokens(a.CacheReadTokens)),
-		withBg(costStyle).Width(cols[6].width).Render(costStr),
-		withBg(cellDim).Width(cols[7].width).Render(truncStr(model, cols[7].width)),
-		withBg(cellDim).Width(cols[8].width).Render(truncStr(lastEvent, cols[8].width)),
+		lipgloss.NewStyle().Width(cols[0].width).Render(id),
+		stateStyle.Width(cols[1].width).Render(a.Stage),
+		cellDim.Width(cols[2].width).Render(age),
+		metricVal.Width(cols[3].width).Render(fmtCompactTokens(a.InputTokens)),
+		metricVal.Width(cols[4].width).Render(fmtCompactTokens(a.OutputTokens)),
+		metricVal.Width(cols[5].width).Render(fmtCompactTokens(a.CacheReadTokens)),
+		costStyle.Width(cols[6].width).Render(costStr),
+		cellDim.Width(cols[7].width).Render(truncStr(model, cols[7].width)),
+		cellDim.Width(cols[8].width).Render(truncStr(lastEvent, cols[8].width)),
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
@@ -342,7 +333,7 @@ func RenderFooter(width int) string {
 		{"q", "Quit"},
 		{"p", "Pause/Resume"},
 		{"j/k", "Navigate"},
-		{"enter", "Select"},
+		{"enter", "Detail"},
 	}
 
 	var parts []string

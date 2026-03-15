@@ -8,6 +8,10 @@
     {
       "issue_id": "uuid-issue-1",
       "issue_identifier": "HUM-100",
+      "title": "Fix authentication middleware for CORS",
+      "description": "The auth middleware doesn't handle CORS preflight requests correctly.",
+      "url": "https://linear.app/humancorp/issue/HUM-100",
+      "labels": ["bug", "security"],
       "state": "In Progress",
       "session_id": "sess-abc",
       "turn_count": 5,

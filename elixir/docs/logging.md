@@ -1,6 +1,6 @@
 # Logging Best Practices
 
-This guide defines logging conventions for Symphony so Codex can diagnose failures quickly.
+This guide defines logging conventions for Symphony so Claude Code can diagnose failures quickly.
 
 ## Goals
 
@@ -15,9 +15,9 @@ When logging issue-related work, include both identifiers:
 - `issue_id`: Linear internal UUID (stable foreign key).
 - `issue_identifier`: human ticket key (for example `MT-620`).
 
-When logging Codex execution lifecycle events, include:
+When logging Claude Code execution lifecycle events, include:
 
-- `session_id`: combined Codex thread/turn identifier.
+- `session_id`: combined Claude Code thread/turn identifier.
 
 ## Message Design
 
@@ -35,6 +35,6 @@ When logging Codex execution lifecycle events, include:
 ## Checklist For New Logs
 
 - Is this event tied to a Linear issue? Include `issue_id` and `issue_identifier`.
-- Is this event tied to a Codex session? Include `session_id`.
+- Is this event tied to a Claude Code session? Include `session_id`.
 - Is the failure reason present and concise?
 - Is the message format consistent with existing lifecycle logs?

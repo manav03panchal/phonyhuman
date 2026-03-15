@@ -68,6 +68,10 @@ defmodule SymphonyElixirWeb.ContractTest do
         %{
           issue_id: "uuid-issue-1",
           identifier: "HUM-100",
+          title: "Fix authentication middleware for CORS",
+          description: "The auth middleware doesn't handle CORS preflight requests correctly.",
+          url: "https://linear.app/humancorp/issue/HUM-100",
+          labels: ["bug", "security"],
           state: "In Progress",
           session_id: "sess-abc",
           agent_app_server_pid: nil,
@@ -191,6 +195,10 @@ defmodule SymphonyElixirWeb.ContractTest do
 
       assert entry["issue_id"] == "uuid-issue-1"
       assert entry["issue_identifier"] == "HUM-100"
+      assert entry["title"] == "Fix authentication middleware for CORS"
+      assert entry["description"] == "The auth middleware doesn't handle CORS preflight requests correctly."
+      assert entry["url"] == "https://linear.app/humancorp/issue/HUM-100"
+      assert entry["labels"] == ["bug", "security"]
       assert entry["state"] == "In Progress"
       assert entry["session_id"] == "sess-abc"
       assert entry["turn_count"] == 5
