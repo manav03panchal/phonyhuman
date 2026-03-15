@@ -213,19 +213,8 @@ defmodule SymphonyElixir.CLI do
   end
 
   defp install_signal_handlers do
-    # Trap SIGINT (Ctrl+C) and SIGTERM for graceful shutdown
+    # Trap SIGINT (Ctrl+C) and SIGTERM so wait_for_shutdown/0 receives {:EXIT, _, reason}
     Process.flag(:trap_exit, true)
-
-    spawn(fn ->
-      ref = Process.monitor(self())
-
-      # The BEAM handles SIGINT/SIGTERM by sending a :shutdown signal.
-      # We register a process that initiates graceful stop when the
-      # application begins terminating.
-      receive do
-        {:DOWN, ^ref, :process, _, _} -> :ok
-      end
-    end)
   end
 
   @spec wait_for_shutdown() :: no_return()
