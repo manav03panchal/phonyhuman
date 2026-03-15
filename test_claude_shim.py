@@ -21,6 +21,8 @@ ClaudeRunner = claude_shim.ClaudeRunner
 validate_otel_port = claude_shim.validate_otel_port
 is_allowed_otel_endpoint = claude_shim.is_allowed_otel_endpoint
 strip_otel_endpoint_vars = claude_shim.strip_otel_endpoint_vars
+get_allowed_tools = claude_shim.get_allowed_tools
+_DEFAULT_ALLOWED_TOOLS = claude_shim._DEFAULT_ALLOWED_TOOLS
 _validate_linear_endpoint = claude_shim._validate_linear_endpoint
 execute_linear_graphql = claude_shim.execute_linear_graphql
 
@@ -475,6 +477,60 @@ class TestStripOtelEndpointVars(unittest.TestCase):
         env = {"SOME_VAR": "value"}
         strip_otel_endpoint_vars(env)
         self.assertEqual(env, {"SOME_VAR": "value"})
+
+
+class TestGetAllowedTools(unittest.TestCase):
+    def setUp(self):
+        self._orig = os.environ.get("CLAUDE_ALLOWED_TOOLS")
+
+    def tearDown(self):
+        if self._orig is None:
+            os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        else:
+            os.environ["CLAUDE_ALLOWED_TOOLS"] = self._orig
+
+    def test_default_returns_builtin_list(self):
+        os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        result = get_allowed_tools()
+        self.assertEqual(result, list(_DEFAULT_ALLOWED_TOOLS))
+
+    def test_default_contains_scoped_bash(self):
+        os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        result = get_allowed_tools()
+        self.assertIn("Bash(git:*)", result)
+        self.assertIn("Bash(gh:*)", result)
+        self.assertIn("Read", result)
+
+    def test_default_has_no_unrestricted_bash(self):
+        os.environ.pop("CLAUDE_ALLOWED_TOOLS", None)
+        result = get_allowed_tools()
+        # Should not contain bare "Bash" without scope
+        self.assertNotIn("Bash", result)
+
+    def test_custom_allowlist_from_env(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "Read Write Bash(git:*)"
+        result = get_allowed_tools()
+        self.assertEqual(result, ["Read", "Write", "Bash(git:*)"])
+
+    def test_none_disables_allowlist(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "none"
+        result = get_allowed_tools()
+        self.assertEqual(result, [])
+
+    def test_none_case_insensitive(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "NONE"
+        result = get_allowed_tools()
+        self.assertEqual(result, [])
+
+    def test_empty_string_returns_default(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = ""
+        result = get_allowed_tools()
+        self.assertEqual(result, list(_DEFAULT_ALLOWED_TOOLS))
+
+    def test_whitespace_only_returns_default(self):
+        os.environ["CLAUDE_ALLOWED_TOOLS"] = "   "
+        result = get_allowed_tools()
+        self.assertEqual(result, list(_DEFAULT_ALLOWED_TOOLS))
 
 
 if __name__ == "__main__":
