@@ -1588,6 +1588,11 @@ defmodule SymphonyElixir.Orchestrator do
   def integrate_agent_update_for_test(running_entry, update),
     do: integrate_agent_update(running_entry, update)
 
+  @doc false
+  @spec select_probe_candidate_for_test([Issue.t()], State.t()) :: Issue.t() | nil
+  def select_probe_candidate_for_test(issues, %State{} = state),
+    do: select_probe_candidate(issues, state)
+
   defp parse_retry_after(update) when is_map(update) do
     raw =
       Map.get(update, :retry_after) ||
@@ -1638,10 +1643,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp dispatch_probe_agent(%State{} = state) do
     case Tracker.fetch_candidate_issues() do
       {:ok, issues} when issues != [] ->
-        probe_issue =
-          issues
-          |> sort_issues_for_dispatch()
-          |> List.last()
+        probe_issue = select_probe_candidate(issues, state)
 
         if probe_issue do
           Logger.info("Dispatching probe agent for #{issue_context(probe_issue)}")
@@ -1655,6 +1657,15 @@ defmodule SymphonyElixir.Orchestrator do
         Logger.warning("Could not fetch issues for fleet probe; rescheduling")
         reschedule_fleet_probe(state)
     end
+  end
+
+  defp select_probe_candidate(issues, %State{running: running, claimed: claimed}) do
+    issues
+    |> Enum.reject(fn issue ->
+      Map.has_key?(running, issue.id) or Map.has_key?(claimed, issue.id)
+    end)
+    |> sort_issues_for_dispatch()
+    |> List.last()
   end
 
   defp do_dispatch_probe(%State{} = state, issue) do
