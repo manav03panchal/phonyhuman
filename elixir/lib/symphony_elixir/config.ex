@@ -354,7 +354,7 @@ defmodule SymphonyElixir.Config do
 
       value ->
         case Integer.parse(value) do
-          {ms, _} when ms > 0 -> ms
+          {ms, ""} when ms > 0 -> ms
           _ -> get_in(validated_workflow_options(), [:agent, :shutdown_timeout_ms])
         end
     end
