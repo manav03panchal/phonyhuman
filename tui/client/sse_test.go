@@ -590,6 +590,78 @@ func TestSSE_BackoffIncreasesExponentially(t *testing.T) {
 	}
 }
 
+func TestSubscribeSSE_MalformedJSONData(t *testing.T) {
+	// Server sends an event with invalid JSON in the data field, followed by a
+	// valid event. The SSE subscription must deliver both without crashing, and
+	// ParseStateEvent must return an error for the malformed payload.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/events" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatal("response writer does not support flushing")
+		}
+
+		// First event: invalid JSON.
+		fmt.Fprint(w, "event: state_update\ndata: {not valid json!!!\n\n")
+		flusher.Flush()
+
+		// Second event: valid JSON.
+		fmt.Fprint(w, "event: state_update\ndata: {\"generated_at\":\"t1\",\"fleet_status\":\"running\"}\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	c := newTestClient(t, server.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sub := c.SubscribeSSE(ctx)
+	defer sub.Close()
+
+	// First event: malformed JSON — subscription delivers it, ParseStateEvent errors.
+	select {
+	case ev1, ok := <-sub.Events():
+		if !ok {
+			t.Fatal("SSE channel closed unexpectedly before delivering malformed event")
+		}
+		if ev1.Type != "state_update" {
+			t.Fatalf("event 1: expected type state_update, got %q", ev1.Type)
+		}
+		_, err := ParseStateEvent(ev1.Data)
+		if err == nil {
+			t.Fatal("expected ParseStateEvent to return error for malformed JSON, got nil")
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for malformed event")
+	}
+
+	// Second event: valid JSON — subscription continues working.
+	select {
+	case ev2, ok := <-sub.Events():
+		if !ok {
+			t.Fatal("SSE channel closed unexpectedly before delivering valid event")
+		}
+		if ev2.Type != "state_update" {
+			t.Fatalf("event 2: expected type state_update, got %q", ev2.Type)
+		}
+		state, err := ParseStateEvent(ev2.Data)
+		if err != nil {
+			t.Fatalf("event 2: unexpected parse error: %v", err)
+		}
+		if state.FleetStatus != "running" {
+			t.Fatalf("event 2: expected fleet_status running, got %q", state.FleetStatus)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for valid event after malformed event")
+	}
+}
+
 func TestSSE_ReconnectsAfterServerRecovery(t *testing.T) {
 	// Server starts "down" (503), then switches to serving events. The client
 	// should keep retrying until the server recovers, then deliver the event.
