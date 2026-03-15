@@ -69,6 +69,44 @@ defmodule SymphonyElixir.RestartMonitorTest do
       Process.flag(:trap_exit, false)
     end
 
+    test "rewatch demonitors old refs before establishing new monitors" do
+      # Start two named supervisors to watch
+      {:ok, sup1} = Task.Supervisor.start_link(name: :test_dedup_sup1)
+      {:ok, sup2} = Task.Supervisor.start_link(name: :test_dedup_sup2)
+
+      {:ok, monitor_pid} =
+        RestartMonitor.start_link(
+          name: :test_dedup_monitor,
+          watched: [:test_dedup_sup1, :test_dedup_sup2]
+        )
+
+      # Get the initial state — should have 2 monitor refs
+      initial_state = :sys.get_state(monitor_pid)
+      assert map_size(initial_state.refs) == 2
+      old_refs = Map.keys(initial_state.refs)
+
+      # Trigger :rewatch manually — this should demonitor old refs first
+      send(monitor_pid, :rewatch)
+      Process.sleep(50)
+
+      # Get the new state — should still have exactly 2 refs (not 4)
+      new_state = :sys.get_state(monitor_pid)
+      assert map_size(new_state.refs) == 2
+      new_refs = Map.keys(new_state.refs)
+
+      # Old refs should be different from new refs (old ones demonitored, new ones created)
+      assert Enum.all?(old_refs, fn old_ref -> old_ref not in new_refs end)
+
+      # Verify old refs are no longer active monitors
+      for old_ref <- old_refs do
+        refute Process.demonitor(old_ref, [:info])
+      end
+
+      GenServer.stop(monitor_pid)
+      Supervisor.stop(sup1)
+      Supervisor.stop(sup2)
+    end
+
     test "rewatches supervisor after it restarts" do
       # Start a simple named supervisor to watch
       {:ok, sup_pid} =

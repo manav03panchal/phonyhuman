@@ -41,7 +41,8 @@ defmodule SymphonyElixir.RestartMonitor do
     end
   end
 
-  def handle_info(:rewatch, %{watched: watched} = state) do
+  def handle_info(:rewatch, %{watched: watched, refs: old_refs} = state) do
+    demonitor_all(old_refs)
     new_refs = establish_monitors(watched)
     {:noreply, %{state | refs: new_refs}}
   end
@@ -53,6 +54,11 @@ defmodule SymphonyElixir.RestartMonitor do
         into: %{} do
       {Process.monitor(pid), name}
     end
+  end
+
+  defp demonitor_all(refs) do
+    for {ref, _name} <- refs, do: Process.demonitor(ref, [:flush])
+    :ok
   end
 
   defp schedule_rewatch do
