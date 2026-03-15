@@ -225,6 +225,24 @@ defmodule SymphonyElixir.Linear.CircuitBreakerTest do
     assert CircuitBreaker.status(name: name) == :closed
   end
 
+  test "unexpected messages do not crash the process", %{name: name} do
+    pid = GenServer.whereis(name)
+    assert Process.alive?(pid)
+
+    log =
+      capture_log(fn ->
+        send(pid, :unexpected_message)
+        # Give GenServer time to process the message
+        Process.sleep(50)
+      end)
+
+    assert Process.alive?(pid)
+    assert log =~ "CircuitBreaker received unexpected message"
+    assert log =~ ":unexpected_message"
+    # Verify circuit breaker still functions normally after unexpected message
+    assert CircuitBreaker.status(name: name) == :closed
+  end
+
   test "half_open rejects concurrent calls", %{name: name} do
     capture_log(fn ->
       for _ <- 1..3 do
