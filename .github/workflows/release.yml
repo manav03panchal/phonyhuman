@@ -236,15 +236,27 @@ jobs:
           echo "Generated checksums:"
           cat checksums.txt
 
+      - name: Check GPG key availability
+        id: gpg-check
+        run: |
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GPG_PRIVATE_KEY not set — skipping signature"
+          fi
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
       - name: Import GPG signing key
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+        if: steps.gpg-check.outputs.available == 'true'
         run: |
           echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 
       - name: Sign checksums with GPG
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+        if: steps.gpg-check.outputs.available == 'true'
         run: |
           echo "::add-mask::$GPG_PASSPHRASE"
           gpg --batch --yes --pinentry-mode loopback \
@@ -261,6 +273,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
             checksums.txt
-            ${{ secrets.GPG_PRIVATE_KEY != '' && 'checksums.txt.asc' || '' }}
+            checksums.txt.asc
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
