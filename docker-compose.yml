@@ -28,6 +28,11 @@ services:
       - LINEAR_ASSIGNEE
       - PHI_LOG_LEVEL
       - SSH_AUTH_SOCK=/run/ssh-agent/ssh-auth.sock
+      # Git identity (avoids mounting host .gitconfig which may contain tokens)
+      - GIT_AUTHOR_NAME
+      - GIT_AUTHOR_EMAIL
+      - GIT_COMMITTER_NAME
+      - GIT_COMMITTER_EMAIL
     volumes:
       # Workflow configuration (required)
       - ./WORKFLOW.md:/etc/symphony/WORKFLOW.md:ro
@@ -38,7 +43,6 @@ services:
       # Git credentials – forward host SSH agent (never mount private keys)
       - ${SSH_AUTH_SOCK:-/dev/null}:/run/ssh-agent/ssh-auth.sock:ro
       - ${HOME}/.ssh/known_hosts:/home/symphony/.ssh/known_hosts:ro
-      - ${HOME}/.gitconfig:/home/symphony/.gitconfig:ro
       # Optional: mount claude CLI binary from host
       # - /usr/local/bin/claude:/usr/local/bin/claude:ro
       # Optional: mount gh CLI binary from host
