@@ -68,6 +68,21 @@ func TestRenderCrumbBar_NoPanic(t *testing.T) {
 			t.Errorf("RenderCrumbBar(%d) returned empty string", w)
 		}
 	}
+
+	// Content assertions at a reasonable width.
+	got := RenderCrumbBar(m, 120)
+	for _, want := range []string{"fleet", "RUNNING", "1h1m"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderCrumbBar(120) missing %q", want)
+		}
+	}
+
+	// Paused fleet shows PAUSED badge.
+	m.FleetStatus = "paused"
+	got = RenderCrumbBar(m, 120)
+	if !strings.Contains(got, "PAUSED") {
+		t.Error("RenderCrumbBar with paused fleet missing PAUSED badge")
+	}
 }
 
 func TestRenderMetricsBar_NoPanic(t *testing.T) {
@@ -76,6 +91,25 @@ func TestRenderMetricsBar_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
 		_ = RenderMetricsBar(m, limits, w)
 	}
+
+	// Content assertions at wide width where all fields fit.
+	got := RenderMetricsBar(m, limits, 200)
+	for _, want := range []string{
+		"TPS:", "2.4",
+		"In:", "12.3K",
+		"Out:", "6.8K",
+		"Cache:", "4.0K",
+		"Cost:", "$0.00",
+		"Model:", "sonnet-4",
+		"Code:", "+142", "7c 2pr",
+		"Tools:", "45", "120ms", "1err",
+		"requests:", "80/100",
+		"tokens:", "5000/10000",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderMetricsBar missing %q", want)
+		}
+	}
 }
 
 func TestRenderMetricsBar_EmptyLimits(t *testing.T) {
@@ -83,12 +117,35 @@ func TestRenderMetricsBar_EmptyLimits(t *testing.T) {
 	for _, w := range testWidths {
 		_ = RenderMetricsBar(m, nil, w)
 	}
+
+	// With nil limits, rate limit labels should be absent.
+	got := RenderMetricsBar(m, nil, 200)
+	if strings.Contains(got, "requests:") {
+		t.Error("RenderMetricsBar(nil limits) should not contain rate limit labels")
+	}
+	// Core metrics should still be present.
+	if !strings.Contains(got, "TPS:") {
+		t.Error("RenderMetricsBar(nil limits) missing TPS label")
+	}
 }
 
 func TestRenderAgentsTable_NoPanic(t *testing.T) {
 	agents := sampleAgents()
 	for _, w := range testWidths {
 		_ = RenderAgentsTable(agents, w, 20)
+	}
+
+	// Content assertions at w=120: column headers and agent data.
+	got := RenderAgentsTable(agents, 120, 20)
+	for _, want := range []string{
+		"ISSUE", "STATE", "COST", "MODEL",
+		"HUM-59", "HUM-60",
+		"running", "error",
+		"$0.34", "$0.05",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderAgentsTable missing %q", want)
+		}
 	}
 }
 
@@ -99,13 +156,23 @@ func TestRenderAgentsTable_Empty(t *testing.T) {
 			t.Errorf("RenderAgentsTable(nil, %d, 20) returned empty string", w)
 		}
 	}
+
+	// Should show empty-state message.
+	got := RenderAgentsTable(nil, 80, 20)
+	if !strings.Contains(got, "No active agents") {
+		t.Error("RenderAgentsTable(nil) missing 'No active agents' message")
+	}
 }
 
 func TestRenderAgentsTable_SmallHeight(t *testing.T) {
 	agents := sampleAgents()
-	_ = RenderAgentsTable(agents, 80, 1)
-	_ = RenderAgentsTable(agents, 80, 2)
-	_ = RenderAgentsTable(agents, 80, 3)
+	for _, h := range []int{1, 2, 3} {
+		got := RenderAgentsTable(agents, 80, h)
+		// Header should always be present regardless of height.
+		if !strings.Contains(got, "ISSUE") {
+			t.Errorf("RenderAgentsTable(h=%d) missing ISSUE header", h)
+		}
+	}
 }
 
 func TestRenderBackoffQueue_NoPanic(t *testing.T) {
@@ -113,11 +180,22 @@ func TestRenderBackoffQueue_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
 		_ = RenderBackoffQueue(state, w)
 	}
+
+	// Content assertions: section title, issue identifier, attempt count.
+	got := RenderBackoffQueue(state, 80)
+	for _, want := range []string{"Retrying", "HUM-1", "×2"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderBackoffQueue missing %q", want)
+		}
+	}
 }
 
 func TestRenderBackoffQueue_Nil_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
-		_ = RenderBackoffQueue(nil, w)
+		got := RenderBackoffQueue(nil, w)
+		if got != "" {
+			t.Errorf("RenderBackoffQueue(nil, %d) = %q, want empty", w, got)
+		}
 	}
 }
 
@@ -125,12 +203,32 @@ func TestRenderFooter_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
 		_ = RenderFooter(w)
 	}
+
+	// Should contain key binding labels.
+	got := RenderFooter(80)
+	for _, want := range []string{"Quit", "Pause/Resume", "Navigate", "Select"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderFooter missing %q", want)
+		}
+	}
 }
 
 func TestRenderPrompt_NoPanic(t *testing.T) {
 	for _, w := range testWidths {
 		_ = RenderPrompt(true, w)
 		_ = RenderPrompt(false, w)
+	}
+
+	// Pause prompt content.
+	got := RenderPrompt(true, 80)
+	if !strings.Contains(got, "Pause fleet?") {
+		t.Error("RenderPrompt(true) missing 'Pause fleet?'")
+	}
+
+	// Resume prompt content.
+	got = RenderPrompt(false, 80)
+	if !strings.Contains(got, "Resume fleet?") {
+		t.Error("RenderPrompt(false) missing 'Resume fleet?'")
 	}
 }
 
@@ -144,7 +242,20 @@ func TestRenderDashboard_NarrowWidths(t *testing.T) {
 	}
 	for _, w := range testWidths {
 		d.Width = w
-		_ = RenderDashboard(d)
+		got := RenderDashboard(d)
+		// At reasonable widths the dashboard should contain key content.
+		if w >= 40 && got == "" {
+			t.Errorf("RenderDashboard(w=%d) returned empty", w)
+		}
+	}
+
+	// Full-width dashboard should contain elements from all sub-components.
+	d.Width = 120
+	got := RenderDashboard(d)
+	for _, want := range []string{"fleet", "RUNNING", "ISSUE", "HUM-59", "Quit"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderDashboard(120) missing %q", want)
+		}
 	}
 }
 
@@ -161,6 +272,9 @@ func TestRenderDashboard_WithPrompt(t *testing.T) {
 	got := RenderDashboard(d)
 	if got == "" {
 		t.Error("RenderDashboard with prompt returned empty string")
+	}
+	if !strings.Contains(got, "Pause fleet?") {
+		t.Error("RenderDashboard with PromptPause missing 'Pause fleet?'")
 	}
 }
 
@@ -193,8 +307,13 @@ func TestRenderActionError_WithError(t *testing.T) {
 func TestRenderActionError_NoPanic(t *testing.T) {
 	err := errors.New("timeout")
 	for _, w := range testWidths {
-		_ = RenderActionError(err, w)
-		_ = RenderActionError(nil, w)
+		got := RenderActionError(err, w)
+		if !strings.Contains(got, "timeout") {
+			t.Errorf("RenderActionError(w=%d) missing error text 'timeout'", w)
+		}
+		if RenderActionError(nil, w) != "" {
+			t.Errorf("RenderActionError(nil, %d) should be empty", w)
+		}
 	}
 }
 
@@ -218,11 +337,38 @@ func TestRenderDashboard_WithActionErr(t *testing.T) {
 }
 
 func TestMiniBar_Clamping(t *testing.T) {
-	_ = miniBar(0, 0.5)
-	_ = miniBar(10, -1.0)
-	_ = miniBar(10, 2.0)
-	_ = miniBar(10, 0.0)
-	_ = miniBar(10, 1.0)
+	// Zero width produces empty bar.
+	if got := miniBar(0, 0.5); strings.ContainsAny(got, "█░") {
+		t.Errorf("miniBar(0, 0.5) should have no bar chars, got %q", got)
+	}
+
+	// Negative pct clamped to 0 → all empty blocks.
+	got := miniBar(10, -1.0)
+	if !strings.Contains(got, "░") {
+		t.Error("miniBar(10, -1.0) missing empty block chars")
+	}
+	if strings.Contains(got, "█") {
+		t.Error("miniBar(10, -1.0) should have no filled blocks")
+	}
+
+	// pct > 1 clamped to 1 → all filled blocks.
+	got = miniBar(10, 2.0)
+	if !strings.Contains(got, "█") {
+		t.Error("miniBar(10, 2.0) missing filled block chars")
+	}
+	if strings.Contains(got, "░") {
+		t.Error("miniBar(10, 2.0) should have no empty blocks")
+	}
+
+	// pct=0 → all empty, pct=1 → all filled.
+	got = miniBar(10, 0.0)
+	if strings.Contains(got, "█") {
+		t.Error("miniBar(10, 0.0) should have no filled blocks")
+	}
+	got = miniBar(10, 1.0)
+	if strings.Contains(got, "░") {
+		t.Error("miniBar(10, 1.0) should have no empty blocks")
+	}
 }
 
 func TestFmtTokens(t *testing.T) {
