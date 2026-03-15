@@ -125,6 +125,65 @@ defmodule SymphonyElixir.CLITest do
     assert message =~ ":boom"
   end
 
+  test "detects eaddrinuse in deeply nested error tuple" do
+    # Simulates a realistic OTP startup failure with :eaddrinuse buried deep
+    listener_error = {:shutdown, {:failed_to_start_child, :listener, :eaddrinuse}}
+    child_error = {:shutdown, {:failed_to_start_child, Bandit, listener_error}}
+    endpoint = {SymphonyElixirWeb.Endpoint, :start_link, [[]]}
+    nested_reason = {:symphony_elixir, {child_error, endpoint}}
+
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn -> {:error, nested_reason} end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+    assert message =~ "Port"
+    assert message =~ "already in use"
+  end
+
+  test "detects flat eaddrinuse error" do
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn -> {:error, {:eaddrinuse, 4318}} end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+    assert message =~ "already in use"
+  end
+
+  test "does not false-positive on string containing eaddrinuse" do
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn -> {:error, {"eaddrinuse", :other}} end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+    assert message =~ "Failed to start Symphony"
+  end
+
+  test "does not false-positive on unrelated atom error" do
+    deps = %{
+      file_regular?: fn _path -> true end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      ensure_all_started: fn -> {:error, {:eacces, "/tmp/sock"}} end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, "WORKFLOW.md"], deps)
+    assert message =~ "Failed to start Symphony"
+  end
+
   test "returns ok when workflow exists and app starts" do
     deps = %{
       file_regular?: fn _path -> true end,
