@@ -93,14 +93,16 @@ defmodule SymphonyElixir.WorkflowStore do
   end
 
   def handle_call(:force_reload, _from, %State{} = state) do
-    case reload_state(state) do
+    path = Workflow.workflow_file_path()
+
+    case load_state(path) do
       {:ok, new_state} ->
         cache_workflow(new_state.workflow)
         {:reply, :ok, new_state}
 
-      {:error, reason, new_state} ->
-        cache_workflow(new_state.workflow)
-        {:reply, {:error, reason}, new_state}
+      {:error, reason} ->
+        cache_workflow(state.workflow)
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -144,12 +146,15 @@ defmodule SymphonyElixir.WorkflowStore do
   end
 
   defp reload_current_path(path, state) do
-    case current_stamp(path) do
-      {:ok, stamp} when stamp == state.stamp ->
-        {:ok, state}
+    case File.stat(path, time: :posix) do
+      {:ok, stat} ->
+        {prev_mtime, prev_size, _prev_hash} = state.stamp
 
-      {:ok, _stamp} ->
-        reload_path(path, state)
+        if stat.mtime == prev_mtime and stat.size == prev_size do
+          {:ok, state}
+        else
+          reload_path(path, state)
+        end
 
       {:error, reason} ->
         log_reload_error(path, reason)
@@ -171,8 +176,6 @@ defmodule SymphonyElixir.WorkflowStore do
     with {:ok, stat} <- File.stat(path, time: :posix),
          {:ok, content} <- File.read(path) do
       {:ok, {stat.mtime, stat.size, :erlang.phash2(content)}}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
