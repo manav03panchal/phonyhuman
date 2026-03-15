@@ -55,8 +55,21 @@ def _find_api_key():
     key = os.environ.get("LINEAR_API_KEY", "")
     if key:
         return key
-    # Search well-known phonyhuman config files in the current directory
-    import tomllib
+    # Search well-known phonyhuman config files in the current directory.
+    # tomllib is stdlib in 3.11+; tomli is the backport for older versions.
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ModuleNotFoundError:
+            print(
+                "warning: cannot read TOML configs (Python < 3.11 and "
+                "'tomli' package not installed). Set LINEAR_API_KEY in "
+                "the environment instead.",
+                file=sys.stderr,
+            )
+            return ""
     for candidate in ("symphony.toml", "phonyhuman.toml"):
         try:
             with open(candidate, "rb") as f:
