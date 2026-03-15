@@ -970,7 +970,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     assert file_config.max_no_files > 0
   end
 
-  test "status dashboard humanizes full codex app-server event set" do
+  test "status dashboard humanizes full claude app-server event set" do
     event_cases = [
       {"turn/started", %{"params" => %{"turn" => %{"id" => "turn-1"}}}, "turn started"},
       {"turn/completed", %{"params" => %{"turn" => %{"status" => "completed"}}}, "turn completed"},

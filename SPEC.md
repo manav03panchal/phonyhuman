@@ -421,12 +421,12 @@ For Codex-owned config values such as `approval_policy`, `thread_sandbox`, and
 `turn_sandbox_policy`, supported values are defined by the targeted Codex app-server version.
 Implementors should treat them as pass-through Codex config values rather than relying on a
 hand-maintained enum in this spec. To inspect the installed Codex schema, run
-`codex app-server generate-json-schema --out <dir>` and inspect the relevant definitions referenced
+`claude app-server generate-json-schema --out <dir>` and inspect the relevant definitions referenced
 by `v2/ThreadStartParams.json` and `v2/TurnStartParams.json`. Implementations may validate these
 fields locally if they want stricter startup checks.
 
 - `command` (string shell command)
-  - Default: `codex app-server`
+  - Default: `claude app-server`
   - The runtime launches this command via `bash -lc` in the workspace directory.
   - The launched process must speak a compatible app-server protocol over stdio.
 - `approval_policy` (Codex `AskForApproval` value)
@@ -568,7 +568,7 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `agent.max_turns`: integer, default `20`
 - `agent.max_retry_backoff_ms`: integer, default `300000` (5m)
 - `agent.max_concurrent_agents_by_state`: map of positive integers, default `{}`
-- `agent_server.command`: shell command string, default `codex app-server`
+- `agent_server.command`: shell command string, default `claude app-server`
 - `agent_server.approval_policy`: Codex `AskForApproval` value, default implementation-defined
 - `agent_server.thread_sandbox`: Codex `SandboxMode` value, default implementation-defined
 - `agent_server.turn_sandbox_policy`: Codex `SandboxPolicy` value, default implementation-defined
@@ -913,7 +913,7 @@ Subprocess launch parameters:
 
 Notes:
 
-- The default command is `codex app-server`.
+- The default command is `claude app-server`.
 - Approval policy, cwd, and prompt are expressed in the protocol messages in Section 10.2.
 
 Recommended additional process settings:
@@ -2080,7 +2080,7 @@ Use the same validation profiles as Section 17:
 - Workspace lifecycle hooks (`after_create`, `before_run`, `after_run`, `before_remove`)
 - Hook timeout config (`hooks.timeout_ms`, default `60000`)
 - Coding-agent app-server subprocess client with JSON line protocol
-- Codex launch command config (`agent_server.command`, default `codex app-server`)
+- Codex launch command config (`agent_server.command`, default `claude app-server`)
 - Strict prompt rendering with `issue` and `attempt` variables
 - Exponential retry queue with continuation retries after normal exit
 - Configurable retry backoff cap (`agent.max_retry_backoff_ms`, default 5m)
