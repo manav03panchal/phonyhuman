@@ -28,16 +28,24 @@ defmodule SymphonyElixirWeb.EventsController do
       |> send_chunked(200)
 
     ObservabilityPubSub.subscribe()
-    conn = send_state_update(conn)
-    schedule_heartbeat()
-    sse_loop(conn)
+
+    case send_state_update(conn) do
+      {:ok, conn} ->
+        schedule_heartbeat()
+        sse_loop(conn)
+
+      {:error, conn} ->
+        conn
+    end
   end
 
   defp sse_loop(conn) do
     receive do
       :observability_updated ->
-        conn = send_state_update(conn)
-        sse_loop(conn)
+        case send_state_update(conn) do
+          {:ok, conn} -> sse_loop(conn)
+          {:error, conn} -> conn
+        end
 
       :heartbeat ->
         case Conn.chunk(conn, ": heartbeat\n\n") do
@@ -53,6 +61,7 @@ defmodule SymphonyElixirWeb.EventsController do
     end
   end
 
+  @spec send_state_update(Conn.t()) :: {:ok, Conn.t()} | {:error, Conn.t()}
   defp send_state_update(conn) do
     payload = Presenter.state_payload(orchestrator(), snapshot_timeout_ms())
     data = Jason.encode!(payload)
@@ -60,8 +69,8 @@ defmodule SymphonyElixirWeb.EventsController do
     event = "event: state_update\ndata: #{data}\n\n"
 
     case Conn.chunk(conn, event) do
-      {:ok, conn} -> conn
-      {:error, _reason} -> conn
+      {:ok, conn} -> {:ok, conn}
+      {:error, _reason} -> {:error, conn}
     end
   end
 
