@@ -79,7 +79,7 @@ The shim (`claude-shim.py`) wraps the Claude CLI process and bridges its output 
 
 ### Event Forwarding
 
-1. The shim spawns `claude -p <prompt> --output-format stream-json --dangerously-skip-permissions --verbose`.
+1. The shim spawns `claude -p <prompt> --output-format stream-json --dangerously-skip-permissions --allowedTools <list> --verbose`.
 2. It reads stdout line-by-line, parsing each line as JSON.
 3. Every parsed event is forwarded as a notification:
 

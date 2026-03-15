@@ -282,6 +282,68 @@ def strip_otel_endpoint_vars(env):
 
 
 # ---------------------------------------------------------------------------
+# Default tool allowlist for Claude Code agents
+# ---------------------------------------------------------------------------
+
+# These tools are sufficient for typical orchestration tasks (code editing, git
+# operations, running tests/builds, reading Linear).  Bash is scoped to
+# specific command prefixes to limit the blast radius of prompt-injection
+# attacks that arrive via untrusted issue content.
+#
+# Override at runtime with the CLAUDE_ALLOWED_TOOLS environment variable
+# (space-separated list).  Set to the literal string "none" to disable the
+# allowlist entirely and fall back to --dangerously-skip-permissions with no
+# tool restrictions (NOT recommended for production).
+
+_DEFAULT_ALLOWED_TOOLS = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Agent",
+    "Bash(git:*)",
+    "Bash(gh:*)",
+    "Bash(python3:*)",
+    "Bash(make:*)",
+    "Bash(mix:*)",
+    "Bash(npm:*)",
+    "Bash(npx:*)",
+    "Bash(cargo:*)",
+    "Bash(ls:*)",
+    "Bash(cat:*)",
+    "Bash(mkdir:*)",
+    "Bash(cp:*)",
+    "Bash(mv:*)",
+    "Bash(rm:*)",
+    "Bash(head:*)",
+    "Bash(tail:*)",
+    "Bash(wc:*)",
+    "Bash(find:*)",
+    "Bash(grep:*)",
+    "Bash(sort:*)",
+    "Bash(diff:*)",
+    "Bash(echo:*)",
+    "Bash(test:*)",
+    "Bash(cd:*)",
+]
+
+
+def get_allowed_tools():
+    """Return the tool allowlist as a list of strings.
+
+    Reads CLAUDE_ALLOWED_TOOLS from the environment.  Returns an empty list
+    (meaning "do not pass --allowedTools") only when explicitly set to "none".
+    """
+    raw = os.environ.get("CLAUDE_ALLOWED_TOOLS", "").strip()
+    if not raw:
+        return list(_DEFAULT_ALLOWED_TOOLS)
+    if raw.lower() == "none":
+        return []
+    return raw.split()
+
+
+# ---------------------------------------------------------------------------
 # Claude Code runner
 # ---------------------------------------------------------------------------
 
@@ -304,6 +366,12 @@ class ClaudeRunner:
             "--dangerously-skip-permissions",
             "--verbose",
         ]
+
+        # Restrict available tools to reduce prompt-injection blast radius.
+        # See SECURITY.md for threat model details.
+        allowed = get_allowed_tools()
+        if allowed:
+            cmd.extend(["--allowedTools"] + allowed)
 
         # Build a clean environment for the Claude subprocess.
         # Remove CLAUDECODE to avoid "nested session" detection.
