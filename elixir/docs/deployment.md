@@ -108,7 +108,8 @@ Pass these via `.env` file or the `environment` section in `docker-compose.yml`:
 | `/etc/symphony/WORKFLOW.md`     | Workflow configuration (required, mount read-only) |
 | `/var/symphony/workspaces`      | Agent workspaces (persistent named volume)         |
 | `/var/log/symphony`             | Application logs                                   |
-| `/home/symphony/.ssh`           | SSH keys for git operations (mount read-only)      |
+| `/home/symphony/.ssh/known_hosts` | SSH known hosts for host verification (read-only) |
+| `/run/ssh-agent/ssh-auth.sock`    | SSH agent socket forwarded from host               |
 | `/home/symphony/.gitconfig`     | Git configuration (mount read-only)                |
 
 ## WORKFLOW.md Configuration for Docker
@@ -243,9 +244,11 @@ dispatching until Linear recovers, avoiding cascading failures.
 docker run --rm \
   -p 4000:4000 \
   --env-file .env \
+  -e SSH_AUTH_SOCK=/run/ssh-agent/ssh-auth.sock \
   -v $(pwd)/WORKFLOW.md:/etc/symphony/WORKFLOW.md:ro \
   -v symphony_workspaces:/var/symphony/workspaces \
-  -v ~/.ssh:/home/symphony/.ssh:ro \
+  -v $SSH_AUTH_SOCK:/run/ssh-agent/ssh-auth.sock:ro \
+  -v ~/.ssh/known_hosts:/home/symphony/.ssh/known_hosts:ro \
   -v ~/.gitconfig:/home/symphony/.gitconfig:ro \
   phonyhuman
 ```
@@ -253,6 +256,6 @@ docker run --rm \
 ## Security Notes
 
 - The container runs as a non-root user (`symphony`, UID 999).
-- SSH keys and `.gitconfig` are mounted read-only.
+- SSH private keys are **never** mounted into the container; the host SSH agent is forwarded via `SSH_AUTH_SOCK`.
 - Secrets are passed via environment variables, never baked into the image.
 - `SECRET_KEY_BASE` must be set for production; generate with `mix phx.gen.secret`.
