@@ -237,12 +237,14 @@ jobs:
           cat checksums.txt
 
       - name: Import GPG signing key
+        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
         run: |
           echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 
       - name: Sign checksums with GPG
+        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
         run: |
           echo "::add-mask::$GPG_PASSPHRASE"
           gpg --batch --yes --pinentry-mode loopback \
@@ -259,6 +261,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           files: |
             checksums.txt
-            checksums.txt.asc
+            ${{ secrets.GPG_PRIVATE_KEY != '' && 'checksums.txt.asc' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
