@@ -3,7 +3,7 @@
 # phonyhuman installer
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/manav03panchal/phonyhuman/main/install.sh | sh
+#   curl -sSL https://raw.githubusercontent.com/manav03panchal/phonyhuman/main/install.sh | bash
 #
 # Environment:
 #   PHONYHUMAN_VERSION   Pin to a specific version (e.g. "0.1.0")
