@@ -350,5 +350,18 @@ defmodule SymphonyElixir.OrchestratorShutdownTest do
 
       assert Config.shutdown_timeout_ms() == 60_000
     end
+
+    test "env var with trailing garbage falls back to default" do
+      old_val = System.get_env("SHUTDOWN_TIMEOUT_MS")
+      System.put_env("SHUTDOWN_TIMEOUT_MS", "123abc")
+
+      on_exit(fn ->
+        if old_val,
+          do: System.put_env("SHUTDOWN_TIMEOUT_MS", old_val),
+          else: System.delete_env("SHUTDOWN_TIMEOUT_MS")
+      end)
+
+      assert Config.shutdown_timeout_ms() == 60_000
+    end
   end
 end
