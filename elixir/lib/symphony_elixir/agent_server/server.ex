@@ -42,23 +42,30 @@ defmodule SymphonyElixir.AgentServer.Server do
       metadata = port_metadata(port)
       expanded_workspace = Path.expand(workspace)
 
-      with {:ok, session_policies} <- session_policies(expanded_workspace),
-           {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
-        {:ok,
-         %{
-           port: port,
-           metadata: metadata,
-           approval_policy: session_policies.approval_policy,
-           auto_approve_requests: session_policies.approval_policy == "never",
-           thread_sandbox: session_policies.thread_sandbox,
-           turn_sandbox_policy: session_policies.turn_sandbox_policy,
-           thread_id: thread_id,
-           workspace: expanded_workspace
-         }}
-      else
-        {:error, reason} ->
+      try do
+        with {:ok, session_policies} <- session_policies(expanded_workspace),
+             {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
+          {:ok,
+           %{
+             port: port,
+             metadata: metadata,
+             approval_policy: session_policies.approval_policy,
+             auto_approve_requests: session_policies.approval_policy == "never",
+             thread_sandbox: session_policies.thread_sandbox,
+             turn_sandbox_policy: session_policies.turn_sandbox_policy,
+             thread_id: thread_id,
+             workspace: expanded_workspace
+           }}
+        else
+          {:error, reason} ->
+            stop_port(port)
+            {:error, reason}
+        end
+      rescue
+        e ->
+          Logger.error("Unexpected exception during session init, closing port: #{Exception.message(e)}")
           stop_port(port)
-          {:error, reason}
+          {:error, {:session_init_error, Exception.message(e)}}
       end
     end
   end
