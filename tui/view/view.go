@@ -22,6 +22,7 @@ type DashboardData struct {
 	PromptPause  bool
 	PromptResume bool
 	PromptQuit   bool
+	ActionErr    error
 }
 
 // RenderDashboard returns the full k9s-style dashboard view.
@@ -49,9 +50,15 @@ func RenderDashboard(d DashboardData) string {
 		promptLine = RenderPrompt(d.PromptPause, w)
 	}
 
+	// Action error line (shown when fleet pause/resume fails)
+	actionErrLine := RenderActionError(d.ActionErr, w)
+
 	// Calculate remaining height for the table
 	usedLines := 4 // header + metrics + blank + footer
 	if promptLine != "" {
+		usedLines++
+	}
+	if actionErrLine != "" {
 		usedLines++
 	}
 
@@ -77,6 +84,9 @@ func RenderDashboard(d DashboardData) string {
 	sections = append(sections, table)
 	if backoff != "" {
 		sections = append(sections, backoff)
+	}
+	if actionErrLine != "" {
+		sections = append(sections, actionErrLine)
 	}
 	if promptLine != "" {
 		sections = append(sections, promptLine)

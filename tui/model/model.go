@@ -68,6 +68,10 @@ type Model struct {
 	stateErr error
 	useSSE   bool
 	sseSub   *client.SSESubscription
+
+	// Fleet action error — set when pause/resume fails, cleared on next
+	// successful state poll.
+	lastActionErr error
 }
 
 // New creates a Model wired to the given API client.
@@ -113,6 +117,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = msg.state
 			m.stateAt = time.Now()
 			m.stateErr = nil
+			m.lastActionErr = nil
 			m.syncMetrics()
 		}
 		if m.useSSE && m.sseSub != nil {
@@ -121,6 +126,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case fleetActionMsg:
+		m.lastActionErr = msg.err
 		// Re-poll immediately after fleet action.
 		return m, m.pollState()
 
@@ -157,6 +163,7 @@ func (m Model) View() string {
 		PromptPause:  m.prompt == promptConfirmPause,
 		PromptResume: m.prompt == promptConfirmResume,
 		PromptQuit:   m.prompt == promptConfirmQuit,
+		ActionErr:    m.lastActionErr,
 	})
 }
 

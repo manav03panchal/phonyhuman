@@ -1,6 +1,8 @@
 package view
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/humancorp/symphony/tui/types"
@@ -167,6 +169,51 @@ func TestRenderDashboard_ZeroWidth(t *testing.T) {
 	got := RenderDashboard(d)
 	if got != "Loading..." {
 		t.Errorf("expected Loading..., got %q", got)
+	}
+}
+
+func TestRenderActionError_Nil(t *testing.T) {
+	got := RenderActionError(nil, 80)
+	if got != "" {
+		t.Errorf("expected empty for nil error, got %q", got)
+	}
+}
+
+func TestRenderActionError_WithError(t *testing.T) {
+	err := errors.New("HTTP 503: service unavailable")
+	got := RenderActionError(err, 80)
+	if got == "" {
+		t.Fatal("expected non-empty output for error")
+	}
+	if !strings.Contains(got, "service unavailable") {
+		t.Errorf("expected error text in output, got %q", got)
+	}
+}
+
+func TestRenderActionError_NoPanic(t *testing.T) {
+	err := errors.New("timeout")
+	for _, w := range testWidths {
+		_ = RenderActionError(err, w)
+		_ = RenderActionError(nil, w)
+	}
+}
+
+func TestRenderDashboard_WithActionErr(t *testing.T) {
+	d := DashboardData{
+		Width:     80,
+		Height:    50,
+		Metrics:   sampleMetrics(),
+		Limits:    sampleLimits(),
+		State:     sampleState(),
+		Agents:    sampleAgents(),
+		ActionErr: errors.New("HTTP 500: internal server error"),
+	}
+	got := RenderDashboard(d)
+	if got == "" {
+		t.Error("RenderDashboard with ActionErr returned empty string")
+	}
+	if !strings.Contains(got, "internal server error") {
+		t.Error("expected error text in dashboard output")
 	}
 }
 

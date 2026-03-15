@@ -323,6 +323,17 @@ func renderRetryRow(entry types.RetryEntry) string {
 	return row
 }
 
+// ─── Action Error ───────────────────────────────────────────────────
+
+// RenderActionError renders a fleet action error as a centered status line.
+func RenderActionError(err error, width int) string {
+	if err == nil {
+		return ""
+	}
+	msg := truncError(err.Error())
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, actionErrStyle.Render("⚠ "+msg))
+}
+
 // ─── Footer ─────────────────────────────────────────────────────────
 
 // RenderFooter renders k9s-style keybinding bar.
