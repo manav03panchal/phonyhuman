@@ -198,6 +198,85 @@ defmodule SymphonyElixir.TelemetryCollectorTest do
       assert result["sess-g"]["claude_code.active_time.total"] == [%{value: 42, attributes: %{}}]
     end
 
+    test "handles non-numeric string in asInt without crashing" do
+      payload = %{
+        "resourceMetrics" => [
+          %{
+            "resource" => %{
+              "attributes" => [
+                %{"key" => "session.id", "value" => %{"stringValue" => "sess-bad"}}
+              ]
+            },
+            "scopeMetrics" => [
+              %{
+                "metrics" => [
+                  %{
+                    "name" => "claude_code.token.usage",
+                    "sum" => %{
+                      "dataPoints" => [
+                        %{"asInt" => "not_a_number", "attributes" => []},
+                        %{"asInt" => "456", "attributes" => []},
+                        %{"asInt" => "12abc", "attributes" => []}
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      result = TelemetryCollector.parse_resource_metrics(payload)
+      points = result["sess-bad"]["claude_code.token.usage"]
+      assert length(points) == 3
+      # Non-numeric string falls back to 0
+      assert Enum.at(points, 0).value == 0
+      # Valid numeric string is parsed
+      assert Enum.at(points, 1).value == 456
+      # Trailing garbage falls back to 0
+      assert Enum.at(points, 2).value == 0
+    end
+
+    test "handles non-numeric string in intValue attribute without crashing" do
+      payload = %{
+        "resourceMetrics" => [
+          %{
+            "resource" => %{
+              "attributes" => [
+                %{"key" => "session.id", "value" => %{"stringValue" => "sess-attr"}}
+              ]
+            },
+            "scopeMetrics" => [
+              %{
+                "metrics" => [
+                  %{
+                    "name" => "claude_code.test.metric",
+                    "sum" => %{
+                      "dataPoints" => [
+                        %{
+                          "asInt" => "100",
+                          "attributes" => [
+                            %{"key" => "bad_int", "value" => %{"intValue" => "xyz"}},
+                            %{"key" => "good_int", "value" => %{"intValue" => "42"}}
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      result = TelemetryCollector.parse_resource_metrics(payload)
+      point = hd(result["sess-attr"]["claude_code.test.metric"])
+      assert point.attributes["bad_int"] == 0
+      assert point.attributes["good_int"] == 42
+    end
+
     test "returns empty map for invalid payload" do
       assert TelemetryCollector.parse_resource_metrics(%{}) == %{}
       assert TelemetryCollector.parse_resource_metrics(nil) == %{}

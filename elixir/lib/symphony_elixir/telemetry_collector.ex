@@ -308,7 +308,14 @@ defmodule SymphonyElixir.TelemetryCollector do
   defp parse_attributes(_), do: %{}
 
   defp parse_int_value(v) when is_integer(v), do: v
-  defp parse_int_value(v) when is_binary(v), do: String.to_integer(v)
+
+  defp parse_int_value(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {int, ""} -> int
+      _ -> 0
+    end
+  end
+
   defp parse_int_value(v), do: v
 
   defp extract_scope_logs(scope_logs) when is_list(scope_logs) do
