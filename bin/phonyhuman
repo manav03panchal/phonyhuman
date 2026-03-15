@@ -1047,6 +1047,37 @@ def yaml_quote(value):
 def yaml_list(items):
     return "\n".join(f"    - {yaml_quote(s)}" for s in items)
 
+def yaml_block_scalar(value, indent=4):
+    """Format a multiline string as a YAML literal block scalar body.
+
+    All lines are re-indented to the given level, preserving relative
+    indentation.  This prevents YAML injection through unindented lines
+    or document markers (e.g. ``---``).
+    """
+    prefix = " " * indent
+    lines = str(value).splitlines()
+    if not lines:
+        return prefix
+    # Determine minimum indentation of non-empty lines
+    min_indent = None
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped:
+            leading = len(line) - len(stripped)
+            if min_indent is None or leading < min_indent:
+                min_indent = leading
+    if min_indent is None:
+        min_indent = 0
+    result = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped:
+            relative = len(line) - len(stripped) - min_indent
+            result.append(prefix + " " * relative + stripped)
+        else:
+            result.append("")
+    return "\n".join(result)
+
 before_run     = repo.get("before_run", "")
 after_run      = repo.get("after_run", "")
 local_repo     = repo.get("local_repo", "")
@@ -1055,13 +1086,13 @@ local_repo     = repo.get("local_repo", "")
 if local_repo:
     worktree_after_create = (
         f'export LOCAL_REPO={local_repo!r}\n'
-        '    BRANCH="symphony/$(basename "$PWD")"\n'
-        '    git -C "$LOCAL_REPO" fetch origin main\n'
-        '    git -C "$LOCAL_REPO" worktree add "$PWD" -b "$BRANCH" origin/main'
+        'BRANCH="symphony/$(basename "$PWD")"\n'
+        'git -C "$LOCAL_REPO" fetch origin main\n'
+        'git -C "$LOCAL_REPO" worktree add "$PWD" -b "$BRANCH" origin/main'
     )
     worktree_before_remove = (
         f'export LOCAL_REPO={local_repo!r}\n'
-        '    git -C "$LOCAL_REPO" worktree remove "$PWD" --force 2>/dev/null || true'
+        'git -C "$LOCAL_REPO" worktree remove "$PWD" --force 2>/dev/null || true'
     )
     after_create  = repo.get("after_create", worktree_after_create)
     before_remove = repo.get("before_remove", worktree_before_remove)
@@ -1069,13 +1100,13 @@ else:
     after_create  = repo.get("after_create", 'git clone --depth 1 "$SOURCE_REPO_URL" .')
     before_remove = repo.get("before_remove", "")
 
-hooks_section = f"  after_create: |\n    {after_create}\n"
+hooks_section = f"  after_create: |\n{yaml_block_scalar(after_create)}\n"
 if before_run:
-    hooks_section += f"  before_run: |\n    {before_run}\n"
+    hooks_section += f"  before_run: |\n{yaml_block_scalar(before_run)}\n"
 if after_run:
-    hooks_section += f"  after_run: |\n    {after_run}\n"
+    hooks_section += f"  after_run: |\n{yaml_block_scalar(after_run)}\n"
 if before_remove:
-    hooks_section += f"  before_remove: |\n    {before_remove}\n"
+    hooks_section += f"  before_remove: |\n{yaml_block_scalar(before_remove)}\n"
 
 workflow = f"""---
 tracker:
