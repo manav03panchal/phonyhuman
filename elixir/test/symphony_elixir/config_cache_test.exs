@@ -82,21 +82,15 @@ defmodule SymphonyElixir.ConfigCacheTest do
       assert is_map(workflow.config)
     end
 
-    test "GenServer current returns last-good workflow and caches it when file is deleted" do
+    test "GenServer current returns last-good workflow when file is deleted" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
 
-      # Clear ETS so current() falls through to GenServer
-      :ets.delete(:symphony_workflow_cache, :workflow)
-
-      # Delete the workflow file so reload_state hits the error branch
+      # Delete the workflow file
       File.rm!(Workflow.workflow_file_path())
 
-      # GenServer should return last-known-good workflow and cache it in ETS
+      # GenServer should return last-known-good workflow from cached state
       assert {:ok, workflow} = WorkflowStore.current()
       assert is_map(workflow.config)
-
-      # Verify ETS was updated with last-good workflow
-      assert {:ok, _} = WorkflowStore.current_cached()
     end
   end
 end

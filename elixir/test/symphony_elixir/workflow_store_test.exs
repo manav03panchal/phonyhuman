@@ -22,11 +22,14 @@ defmodule SymphonyElixir.WorkflowStoreTest do
       assert w1.config["agent"]["max_concurrent_agents"] == 4
 
       # Write new content directly (not via write_workflow_file! which triggers force_reload)
-      # so that current() exercises reload_current_path → reload_path → load_state success path
+      # so that the poll timer exercises reload_current_path → reload_path → load_state success path
       Process.sleep(1_100)
       old_content = File.read!(path)
       new_content = String.replace(old_content, "max_concurrent_agents: 4", "max_concurrent_agents: 7")
       File.write!(path, new_content)
+
+      # Wait for the poll timer to pick up the change (poll interval is 1s)
+      Process.sleep(1_500)
 
       {:ok, w2} = WorkflowStore.current()
       assert w2.config["agent"]["max_concurrent_agents"] == 7
