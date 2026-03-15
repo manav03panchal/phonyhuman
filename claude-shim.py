@@ -39,11 +39,15 @@ def log_error(msg):
 # JSON-RPC helpers
 # ---------------------------------------------------------------------------
 
+_send_lock = threading.Lock()
+
+
 def send(payload):
     """Send a JSON-RPC message to Symphony via stdout."""
     line = json.dumps(payload, separators=(",", ":")) + "\n"
-    sys.stdout.write(line)
-    sys.stdout.flush()
+    with _send_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def send_result(req_id, result):

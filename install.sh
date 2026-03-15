@@ -170,7 +170,7 @@ if [ -n "$CHECKSUMS_URL" ]; then
         curl -sSL -o "$INSTALL_TMPDIR/checksums.txt" "$CHECKSUMS_URL" || die "Failed to download checksums"
     fi
 
-    EXPECTED_SUM=$(grep "$TARBALL_NAME" "$INSTALL_TMPDIR/checksums.txt" | awk '{print $1}')
+    EXPECTED_SUM=$(grep "  ${TARBALL_NAME}$" "$INSTALL_TMPDIR/checksums.txt" | head -1 | awk '{print $1}')
     if [ -z "$EXPECTED_SUM" ]; then
         die "Checksum for $TARBALL_NAME not found in checksums.txt"
     fi
@@ -429,7 +429,11 @@ echo ""
 
 if [ "$ALREADY_IN_PATH" = false ]; then
     yellow "  Restart your shell or run:"; echo ""
-    echo "    $(cyan "source ~/.${SHELL_NAME}rc")"
+    if [ "$SHELL_NAME" = "fish" ]; then
+        echo "    $(cyan "source ~/.config/fish/config.fish")"
+    else
+        echo "    $(cyan "source ~/.${SHELL_NAME}rc")"
+    fi
     echo ""
 fi
 

@@ -320,14 +320,14 @@ func (m *Model) syncMetrics() {
 		if rl.PrimaryBucket != nil {
 			m.limits = append(m.limits, types.RateLimit{
 				Name:  "Primary",
-				Used:  rl.PrimaryBucket.Capacity - rl.PrimaryBucket.Remaining,
+				Used:  max(0, rl.PrimaryBucket.Capacity-rl.PrimaryBucket.Remaining),
 				Limit: rl.PrimaryBucket.Capacity,
 			})
 		}
 		if rl.SecondaryBucket != nil {
 			m.limits = append(m.limits, types.RateLimit{
 				Name:  "Secondary",
-				Used:  rl.SecondaryBucket.Capacity - rl.SecondaryBucket.Remaining,
+				Used:  max(0, rl.SecondaryBucket.Capacity-rl.SecondaryBucket.Remaining),
 				Limit: rl.SecondaryBucket.Capacity,
 			})
 		}

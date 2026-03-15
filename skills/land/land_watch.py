@@ -17,6 +17,7 @@ CODEX_BOTS = {
 }
 MAX_GH_RETRIES = 5
 BASE_GH_BACKOFF_SECONDS = 2
+MAX_PAGINATION_PAGES = 100
 
 
 @dataclass
@@ -98,6 +99,12 @@ async def get_paginated_list(endpoint: str) -> list[dict[str, Any]]:
             break
         items.extend(batch)
         page += 1
+        if page > MAX_PAGINATION_PAGES:
+            print(
+                f"Warning: pagination limit ({MAX_PAGINATION_PAGES} pages) "
+                f"reached for {endpoint}",
+            )
+            break
     return items
 
 
@@ -132,6 +139,12 @@ async def get_reviews(pr_number: int) -> list[dict[str, Any]]:
             break
         reviews.extend(batch)
         page += 1
+        if page > MAX_PAGINATION_PAGES:
+            print(
+                f"Warning: pagination limit ({MAX_PAGINATION_PAGES} pages) "
+                f"reached for reviews on PR #{pr_number}",
+            )
+            break
     return reviews
 
 
@@ -158,6 +171,12 @@ async def get_check_runs(head_sha: str) -> list[dict[str, Any]]:
         if total_count is not None and len(check_runs) >= total_count:
             break
         page += 1
+        if page > MAX_PAGINATION_PAGES:
+            print(
+                f"Warning: pagination limit ({MAX_PAGINATION_PAGES} pages) "
+                f"reached for check-runs on {head_sha}",
+            )
+            break
     return check_runs
 
 
