@@ -100,6 +100,10 @@ Pass these via `.env` file or the `environment` section in `docker-compose.yml`:
 | `SOURCE_REPO_URL`  | No       | Repository URL for workspace cloning              |
 | `LINEAR_ASSIGNEE`  | No       | Filter issues by assignee                         |
 | `SYMPHONY_PORT`    | No       | Host port to map (default: 4000)                  |
+| `GIT_AUTHOR_NAME`  | No       | Git author name for commits made inside the container |
+| `GIT_AUTHOR_EMAIL` | No       | Git author email for commits made inside the container |
+| `GIT_COMMITTER_NAME` | No     | Git committer name (defaults to `GIT_AUTHOR_NAME` if unset) |
+| `GIT_COMMITTER_EMAIL` | No    | Git committer email (defaults to `GIT_AUTHOR_EMAIL` if unset) |
 
 ## Volumes
 
@@ -110,7 +114,6 @@ Pass these via `.env` file or the `environment` section in `docker-compose.yml`:
 | `/var/log/symphony`             | Application logs                                   |
 | `/home/symphony/.ssh/known_hosts` | SSH known hosts for host verification (read-only) |
 | `/run/ssh-agent/ssh-auth.sock`    | SSH agent socket forwarded from host               |
-| `/home/symphony/.gitconfig`     | Git configuration (mount read-only)                |
 
 ## WORKFLOW.md Configuration for Docker
 
@@ -249,7 +252,8 @@ docker run --rm \
   -v symphony_workspaces:/var/symphony/workspaces \
   -v $SSH_AUTH_SOCK:/run/ssh-agent/ssh-auth.sock:ro \
   -v ~/.ssh/known_hosts:/home/symphony/.ssh/known_hosts:ro \
-  -v ~/.gitconfig:/home/symphony/.gitconfig:ro \
+  -e GIT_AUTHOR_NAME="Your Name" \
+  -e GIT_AUTHOR_EMAIL="you@example.com" \
   phonyhuman
 ```
 
@@ -258,4 +262,5 @@ docker run --rm \
 - The container runs as a non-root user (`symphony`, UID 999).
 - SSH private keys are **never** mounted into the container; the host SSH agent is forwarded via `SSH_AUTH_SOCK`.
 - Secrets are passed via environment variables, never baked into the image.
+- The host `~/.gitconfig` is **not** mounted into the container to avoid leaking tokens, signing keys, or `credential.helper` configurations. Git identity is set via `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` environment variables instead.
 - `SECRET_KEY_BASE` must be set for production; generate with `mix phx.gen.secret`.
