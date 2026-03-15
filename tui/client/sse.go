@@ -49,6 +49,7 @@ type SSESubscription struct {
 	idleTimeout       time.Duration
 	connectTimeout    time.Duration
 	backoffResetAfter time.Duration
+	minBackoff        time.Duration // test hook; zero → initialBackoff
 }
 
 // SubscribeSSE connects to the SSE endpoint and returns a subscription.
@@ -95,7 +96,11 @@ func (s *SSESubscription) Close() {
 func (s *SSESubscription) loop() {
 	defer close(s.events)
 
-	backoff := initialBackoff
+	base := s.minBackoff
+	if base == 0 {
+		base = initialBackoff
+	}
+	backoff := base
 
 	for {
 		if err := s.ctx.Err(); err != nil {
@@ -115,7 +120,7 @@ func (s *SSESubscription) loop() {
 		// the reset threshold, so transient earlier failures don't permanently
 		// slow reconnects.
 		if time.Since(connStart) >= s.backoffResetAfter {
-			backoff = initialBackoff
+			backoff = base
 		}
 
 		select {
