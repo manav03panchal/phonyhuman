@@ -136,10 +136,6 @@ type Health struct {
 	ActiveAgents  int    `json:"active_agents"`
 }
 
-// HealthResponse represents the response from the /health endpoint.
-// Alias for backward compatibility with the TUI scaffold.
-type HealthResponse = Health
-
 // --- Dashboard display types ---
 
 // AgentMetrics holds aggregated agent metrics for dashboard display.
@@ -202,11 +198,6 @@ const (
 	StatusError        AgentStatus = "error"
 	StatusDefault      AgentStatus = "default"
 )
-
-// StatusDot returns the dot character used for status display.
-func (s AgentStatus) StatusDot() string {
-	return "●"
-}
 
 // StatusColor returns the Lip Gloss color string for the status.
 // Colors: green=active, yellow=token_update, magenta=turn_complete, red=error, blue=default.

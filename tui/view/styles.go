@@ -15,10 +15,7 @@ var (
 	colorRed      = lipgloss.Color("#FF1744")
 	colorWhite    = lipgloss.Color("#E0E0E0")
 	colorDim      = lipgloss.Color("#666666")
-	colorDimmer   = lipgloss.Color("#444444")
-	colorRowEven  = lipgloss.Color("") // no background — use terminal default
-	colorRowOdd   = lipgloss.Color("") // no background — use terminal default
-	colorSelected = lipgloss.Color("") // no background — cursor marker is enough
+	colorDimmer = lipgloss.Color("#444444")
 )
 
 // Logo and breadcrumb.
