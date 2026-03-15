@@ -55,10 +55,8 @@ defmodule SymphonyElixir.TelemetryCollector do
 
     case start_listener(port, opts) do
       {:ok, listener_ref} ->
-        # Unlink so a listener crash doesn't take down the collector;
-        # monitor instead to log and clear the ref.
-        Process.unlink(listener_ref)
-        listener_monitor = Process.monitor(listener_ref)
+        # Keep the link so listener dies with collector — prevents orphan
+        # listeners and eaddrinuse on restart.
         bound = resolve_bound_port(listener_ref)
         schedule_prune()
 
@@ -68,7 +66,6 @@ defmodule SymphonyElixir.TelemetryCollector do
            session_timestamps: %{},
            orchestrator: orchestrator,
            listener_ref: listener_ref,
-           listener_monitor: listener_monitor,
            port: port,
            bound_port: bound
          }}
@@ -83,7 +80,6 @@ defmodule SymphonyElixir.TelemetryCollector do
           session_timestamps: %{},
           orchestrator: orchestrator,
           listener_ref: nil,
-          listener_monitor: nil,
           port: port,
           bound_port: nil
         }
@@ -93,11 +89,6 @@ defmodule SymphonyElixir.TelemetryCollector do
   end
 
   @impl true
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{listener_monitor: ref} = state) do
-    Logger.warning("TelemetryCollector listener exited: #{inspect(reason)}")
-    {:noreply, %{state | listener_ref: nil, listener_monitor: nil, bound_port: nil}}
-  end
-
   def handle_info(:prune_sessions, state) do
     schedule_prune()
     {:noreply, prune_stale_sessions(state)}
