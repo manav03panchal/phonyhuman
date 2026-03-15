@@ -13,6 +13,7 @@ defmodule SymphonyElixir.Orchestrator do
   # Default timeout for GenServer.call operations (e.g. refresh, fleet control).
   # Matches the snapshot default; avoids the 5 s default under heavy load.
   @call_timeout 15_000
+  @min_fleet_pause_ms 1_000
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
   # 24 hours — entries older than this are pruned from completed/claimed maps.
@@ -1496,7 +1497,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp trigger_fleet_pause(%State{} = state, reason, retry_after_ms) do
     default_ms = Config.fleet_pause_default_ms()
     max_ms = Config.fleet_pause_max_ms()
-    pause_ms = min(retry_after_ms || default_ms, max_ms)
+    pause_ms = (retry_after_ms || default_ms) |> max(@min_fleet_pause_ms) |> min(max_ms)
     paused_until = DateTime.add(DateTime.utc_now(), pause_ms, :millisecond)
     attempt = state.fleet_pause_attempt + 1
 
