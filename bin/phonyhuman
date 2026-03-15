@@ -665,15 +665,17 @@ cmd_update() {
         auth_header="Authorization: token $GITHUB_TOKEN"
     fi
 
-    local release_json
+    local release_json_file
+    release_json_file=$(mktemp "${TMPDIR:-/tmp}/phonyhuman-release-XXXXXXXXXX.json")
+    trap "rm -f '$release_json_file'" RETURN
     if [[ -n "$auth_header" ]]; then
-        release_json=$(curl -sSL -H "$auth_header" "$api_url" 2>/dev/null) || die "Failed to check for updates"
+        curl -sSL -H "$auth_header" -o "$release_json_file" "$api_url" 2>/dev/null || die "Failed to check for updates"
     else
-        release_json=$(curl -sSL "$api_url" 2>/dev/null) || die "Failed to check for updates"
+        curl -sSL -o "$release_json_file" "$api_url" 2>/dev/null || die "Failed to check for updates"
     fi
 
     local latest_version
-    latest_version=$(echo "$release_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name','').lstrip('v'))" 2>/dev/null) || die "Failed to parse release info"
+    latest_version=$(python3 -c "import json; print(json.load(open('$release_json_file')).get('tag_name','').lstrip('v'))" 2>/dev/null) || die "Failed to parse release info"
 
     if [[ -z "$latest_version" ]]; then
         die "Could not determine latest version"
@@ -700,9 +702,9 @@ cmd_update() {
     platform="${os_name}-${arch_name}"
 
     local tarball_url
-    tarball_url=$(echo "$release_json" | python3 - "$platform" <<'PYEOF'
+    tarball_url=$(python3 - "$platform" "$release_json_file" <<'PYEOF'
 import sys, json
-data = json.load(sys.stdin)
+data = json.load(open(sys.argv[2]))
 platform = sys.argv[1]
 fallback = None
 for asset in data.get('assets', []):
@@ -736,9 +738,9 @@ PYEOF
     # ── Verify checksum ──────────────────────────────────────────────
     local tarball_name checksums_url expected_sum actual_sum
     tarball_name=$(basename "$tarball_url")
-    checksums_url=$(echo "$release_json" | python3 -c "
+    checksums_url=$(python3 -c "
 import sys, json
-data = json.load(sys.stdin)
+data = json.load(open('$release_json_file'))
 for asset in data.get('assets', []):
     if asset['name'] == 'checksums.txt':
         print(asset['browser_download_url'])
@@ -779,9 +781,9 @@ for asset in data.get('assets', []):
 
     # ── Verify GPG signature ──────────────────────────────────────
     local sig_url key_url
-    sig_url=$(echo "$release_json" | python3 -c "
+    sig_url=$(python3 -c "
 import sys, json
-data = json.load(sys.stdin)
+data = json.load(open('$release_json_file'))
 for asset in data.get('assets', []):
     if asset['name'] == 'checksums.txt.asc':
         print(asset['browser_download_url'])
