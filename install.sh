@@ -67,6 +67,18 @@ if ! command -v python3 >/dev/null 2>&1; then
     die "python3 is required but not found. Install Python 3.11+: https://python.org"
 fi
 
+PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "")
+if [ -n "$PYTHON_VERSION" ]; then
+    PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
+    PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+    if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 11 ]; }; then
+        yellow "  Warning: Python $PYTHON_VERSION detected. Python 3.11+ is recommended."; echo ""
+        echo "  TOML config support requires Python 3.11+ or the 'tomli' package."
+        echo "  You can still use phonyhuman by setting LINEAR_API_KEY in the environment."
+        echo ""
+    fi
+fi
+
 if ! command -v tar >/dev/null 2>&1; then
     die "tar is required but not found"
 fi
