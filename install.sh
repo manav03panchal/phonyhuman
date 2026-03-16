@@ -104,7 +104,7 @@ else
     RELEASE_JSON=$(curl -sSL "$RELEASE_URL" 2>/dev/null) || die "Failed to fetch release info"
 fi
 
-VERSION=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name','').lstrip('v'))" 2>/dev/null) || die "Failed to parse release"
+VERSION=$(printf '%s' "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name','').lstrip('v'))" 2>/dev/null) || die "Failed to parse release"
 
 if [ -z "$VERSION" ]; then
     die "Could not determine version. Check that releases exist at:
@@ -118,7 +118,7 @@ echo "  Version: $(green "v${VERSION}")"
 PLATFORM="${OS}-${ARCH}"
 dim "  Looking for tarball: ${PLATFORM}"; echo ""
 
-TARBALL_URL=$(echo "$RELEASE_JSON" | python3 -c "
+TARBALL_URL=$(printf '%s' "$RELEASE_JSON" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 platform = '${PLATFORM}'
@@ -154,7 +154,7 @@ fi
 
 # ── Verify checksum ─────────────────────────────────────────────────
 TARBALL_NAME=$(basename "$TARBALL_URL")
-CHECKSUMS_URL=$(echo "$RELEASE_JSON" | python3 -c "
+CHECKSUMS_URL=$(printf '%s' "$RELEASE_JSON" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for asset in data.get('assets', []):
@@ -196,7 +196,7 @@ else
 fi
 
 # ── Verify GPG signature ──────────────────────────────────────────
-SIG_URL=$(echo "$RELEASE_JSON" | python3 -c "
+SIG_URL=$(printf '%s' "$RELEASE_JSON" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for asset in data.get('assets', []):
