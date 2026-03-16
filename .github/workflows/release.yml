@@ -149,11 +149,12 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           PLATFORM="${{ matrix.platform }}"
           STAGING="phonyhuman-${VERSION}"
-          mkdir -p "$STAGING/bin" "$STAGING/templates"
+          mkdir -p "$STAGING/bin/lib" "$STAGING/templates"
 
-          # CLI wrapper
+          # CLI wrapper + subcommand modules
           cp bin/phonyhuman "$STAGING/bin/phonyhuman"
           chmod +x "$STAGING/bin/phonyhuman"
+          cp bin/lib/*.sh "$STAGING/bin/lib/"
 
           # Elixir escript (renamed to avoid collision)
           cp elixir/bin/symphony "$STAGING/bin/symphony-escript"
